@@ -111,9 +111,9 @@ def plot_basis_functions(dimension, downsampling_rate, directory):
     plt.figure(dpi=300)
     plt.hist(data[:10].flatten(), 10000, histtype='bar')
     x_values = np.arange(0, 1, 0.001)[:, None]
-    y_values = tdt.gauss_function(0, 0.285, 0.001)(x_values.T)
+    y_values = tdt.GaussFunction(0, 0.285, 0.001)(x_values.T)
     plt.plot(x_values, 170000 * y_values, linewidth=2)
-    y_values = tdt.gauss_function(0, 0.62, 0.01)(x_values.T)
+    y_values = tdt.GaussFunction(0, 0.62, 0.01)(x_values.T)
     plt.plot(x_values, 2500 * y_values, linewidth=2)
     plt.xlim([0, 1])
     plt.xlabel(r"$\Delta [\mathrm{nm}]$")
@@ -121,9 +121,9 @@ def plot_basis_functions(dimension, downsampling_rate, directory):
     plt.show()
     plt.figure(dpi=300)
     x = np.arange(0, 1, 0.001)[:, None]
-    plt.plot(x, tdt.constant_function(0)(x.T), linewidth=2)
-    plt.plot(x, tdt.gauss_function(0, 0.285, 0.001)(x.T), linewidth=2)
-    plt.plot(x, tdt.gauss_function(0, 0.62, 0.01)(x.T), linewidth=2)
+    plt.plot(x, tdt.ConstantFunction(0)(x.T), linewidth=2)
+    plt.plot(x, tdt.GaussFunction(0, 0.285, 0.001)(x.T), linewidth=2)
+    plt.plot(x, tdt.GaussFunction(0, 0.62, 0.01)(x.T), linewidth=2)
     plt.xlim([0, 1])
     plt.ylim([0, 1.2])
     plt.xlabel(r"$\Delta [\mathrm{nm}]$")
@@ -157,7 +157,7 @@ def tedmd_hosvd(dimensions, downsampling_rate, integer_lag_times, threshold, dir
         lag_times = time_step * downsampling_rate * integer_lag_times
         
         # define basis list
-        basis_list = [[tdt.constant_function(), tdt.gauss_function(i, 0.285, 0.001), tdt.gauss_function(i, 0.62, 0.01)] for
+        basis_list = [[tdt.ConstantFunction(), tdt.GaussFunction(i, 0.285, 0.001), tdt.GaussFunction(i, 0.62, 0.01)] for
                       i in range(dimensions[i])]
 
         # progress
@@ -221,7 +221,7 @@ def tedmd_hocur(dimensions, downsampling_rate, integer_lag_times, max_rank, dire
         lag_times = time_step * downsampling_rate * integer_lag_times
         
         # define basis list
-        basis_list = [[tdt.constant_function(), tdt.gauss_function(i, 0.285, 0.001), tdt.gauss_function(i, 0.62, 0.01)] for
+        basis_list = [[tdt.ConstantFunction(), tdt.GaussFunction(i, 0.285, 0.001), tdt.GaussFunction(i, 0.62, 0.01)] for
                       i in range(dimensions[i])]
 
         # progress

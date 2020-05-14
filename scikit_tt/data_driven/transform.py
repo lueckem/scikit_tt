@@ -7,168 +7,177 @@ import time as _time
 from scikit_tt.tensor_train import TT
 
 
-def constant_function():
-    """Constant function.
+class ConstantFunction:
+    def __call__(self, t):
+        return 1.0
 
-    Returns
-    -------
-    f: function
-        constant function
-    """
-
-    f = lambda t: 1 + 0 * t[0]
-
-    return f
+    def partial(self, t, direction):
+        return 0.0
 
 
-def indicator_function(index, a, b):
-    """Indicator function.
+class IndicatorFunction:
+    def __init__(self, index, a, b):
+        """ Indicator function.
 
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the indicator function
-    a: float
-        lower bound of the interval
-    b: float
-        upper bound of the interval
-
-    Returns
-    -------
-    f: function
-        indicator function
-    """
-
-    #f = lambda t: __indicator_function_callback(t[index], a, b)
-    f = lambda t: 1 * ((a <= t[index]) & (t[index] < b))
-
-    return f
-
-def identity(index):
-    """Identiy function.
-
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the identity function
-
-    Returns
-    -------
-    f: function
-        identity function at given index
-    """
-
-    f = lambda t: t[index]
-
-    return f
-
-def monomial(index, exponent):
-    """Monomial function.
-
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the identity function
-    exponent: int
-        degree of the monomial
-
-    Returns
-    -------
-    f: function
-        monomial function at given index
-    """
-
-    f = lambda t: (t[index])**exponent
-
-    return f
-
-
-def sin(index, alpha):
-    """Sine function.
-
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the sine function
-    alpha: float
-        prefactor
-
-    Returns
-    -------
-    f: function
-        sine function at given index
-    """
-
-    f = lambda t: np.sin(alpha * t[index])
-
-    return f
-
-
-def cos(index, alpha):
-    """Cosine function.
-
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the cosine function
-    alpha: float
-        prefactor
-
-    Returns
-    -------
-    f: function
-        cosine function at given index
-    """
-
-    f = lambda t: np.cos(alpha * t[index])
-
-    return f
-
-
-def gauss_function(index, mean, variance):
-    """Gauss function.
-
-    Parameters
-    ----------
-    index: int
-        define which entry of a snapshot is passed to the Gauss function
-    mean: float
-        mean of the distribution
-    variance: float (>0)
-        variance
-
-    Returns
-    -------
-    f: function
-        Gauss function
-    """
-
-    f = lambda t: np.exp(-0.5 * (t[index] - mean) ** 2 / variance)
-
-    return f
-
-
-def periodic_gauss_function(index, mean, variance):
-    """Periodic Gauss function.
-
-        Parameters
-        ----------
-        index: int
-            define which entry of a snapshot is passed to the periodic Gauss function
-        mean: float
-            mean of the distribution
-        variance: float (>0)
-            variance
-
-        Returns
-        -------
-        f: function
-            Gauss function
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the indicator function
+            a: float
+                lower bound of the interval
+            b: float
+                upper bound of the interval
         """
+        self.index = index
+        self.a = a
+        self.b = b
 
-    f = lambda t: np.exp(-0.5 * np.sin(0.5 * (t[index] - mean)) ** 2 / variance)
+    def __call__(self, t):
+        return 1 * ((self.a <= t[self.index]) & (t[self.index] < self.b))
 
-    return f
+
+class Identity:
+    def __init__(self, index):
+        """ Identiy function.
+
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the identity function
+        """
+        self.index = index
+
+    def __call__(self, t):
+        return t[self.index]
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return 1.0
+        return 0.0
+
+
+class Monomial:
+    def __init__(self, index, exponent):
+        """ Monomial function.
+
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the identity function
+            exponent: int
+                degree of the monomial
+        """
+        self.index = index
+        self.exponent = exponent
+
+    def __call__(self, t):
+        return t[self.index] ** self.exponent
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return self.exponent * t[self.index] ** (self.exponent - 1)
+        return 0.0
+
+
+class Sin:
+    def __init__(self, index, alpha):
+        """ Sine function.
+
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the sine function
+            alpha: float
+                prefactor
+        """
+        self.index = index
+        self.alpha = alpha
+
+    def __call__(self, t):
+        return np.sin(self.alpha * t[self.index])
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return self.alpha * np.cos(self.alpha * t[self.index])
+        return 0.0
+
+
+class Cos:
+    def __init__(self, index, alpha):
+        """ Cosine function.
+
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the cosine function
+            alpha: float
+                prefactor
+        """
+        self.index = index
+        self.alpha = alpha
+
+    def __call__(self, t):
+        return np.cos(self.alpha * t[self.index])
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return -self.alpha * np.sin(self.alpha * t[self.index])
+        return 0.0
+
+
+class GaussFunction:
+    def __init__(self, index, mean, variance):
+        """ Gauss function.
+
+            Parameters
+            ----------
+            index: int
+                define which entry of a snapshot is passed to the Gauss function
+            mean: float
+                mean of the distribution
+            variance: float (>0)
+                variance
+        """
+        self.index = index
+        self.mean = mean
+        self.variance = variance
+
+    def __call__(self, t):
+        return np.exp(-0.5 * (t[self.index] - self.mean) ** 2 / self.variance)
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return -np.exp(-(0.5 * (self.mean - t[self.index]) ** 2) / self.variance) * \
+                   (-self.mean + t[self.index]) / self.variance
+        return 0.0
+
+
+class PeriodicGaussFunction:
+    def __init__(self, index, mean, variance):
+        """ Periodic Gauss function.
+
+                Parameters
+                ----------
+                index: int
+                    define which entry of a snapshot is passed to the periodic Gauss function
+                mean: float
+                    mean of the distribution
+                variance: float (>0)
+                    variance
+        """
+        self.index = index
+        self.mean = mean
+        self.variance = variance
+
+    def __call__(self, t):
+        return np.exp(-0.5 * np.sin(0.5 * (t[self.index] - self.mean)) ** 2 / self.variance)
+
+    def partial(self, t, direction):
+        if direction == self.index:
+            return (0.5 * np.exp(-(0.5 * np.sin(0.5 * self.mean - 0.5 * t[self.index]) ** 2) / self.variance) *
+                    np.cos(0.5 * self.mean - 0.5 * t[self.index]) * np.sin(0.5 * self.mean - 0.5 * t[self.index])) \
+                   / self.variance
+        return 0.0
 
 
 def basis_decomposition(x, phi, single_core=None):

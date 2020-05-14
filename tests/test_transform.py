@@ -16,23 +16,23 @@ class TestMANDy(TestCase):
         self.n = 20
         self.data = np.random.rand(self.d, self.m)
         self.data_2 = np.random.rand(self.d, self.n)
-        self.phi_1 = [[tdt.constant_function(), tdt.identity(i), tdt.monomial(i,2)] for i in range(self.d)]
+        self.phi_1 = [[tdt.ConstantFunction(), tdt.Identity(i), tdt.Monomial(i, 2)] for i in range(self.d)]
         self.psi_1 = [lambda t: 1, lambda t: t, lambda t: t**2]
-        self.phi_2 = [[tdt.constant_function()] + [tdt.sin(i,1) for i in range(self.d)], [tdt.constant_function()] + [tdt.cos(i,1) for i in range(self.d)] ]
+        self.phi_2 = [[tdt.ConstantFunction()] + [tdt.Sin(i, 1) for i in range(self.d)], [tdt.ConstantFunction()] + [tdt.Cos(i, 1) for i in range(self.d)]]
         self.psi_2 = [lambda t: np.sin(t), lambda t: np.cos(t)]
 
 
     def test_basis_functions(self):
         """test basis functions"""
 
-        constant = tdt.constant_function()
-        indicator = tdt.indicator_function(0,0,0.5)
-        identity = tdt.identity(0)
-        monomial = tdt.monomial(0,2)
-        sin = tdt.sin(0,1)
-        cos = tdt.cos(0,1)
-        gauss = tdt.gauss_function(0,1,1)
-        periodic_gauss = tdt.periodic_gauss_function(0,1,1)
+        constant = tdt.ConstantFunction()
+        indicator = tdt.IndicatorFunction(0, 0, 0.5)
+        identity = tdt.Identity(0)
+        monomial = tdt.Monomial(0, 2)
+        sin = tdt.Sin(0, 1)
+        cos = tdt.Cos(0, 1)
+        gauss = tdt.GaussFunction(0, 1, 1)
+        periodic_gauss = tdt.PeriodicGaussFunction(0, 1, 1)
         
         self.assertEqual(np.sum(np.abs(constant(self.data)-np.ones(self.m))), 0)
         self.assertEqual(np.sum(np.abs(indicator(self.data)-np.logical_and(self.data[0, :]>=0, self.data[0, :]<0.5))), 0)

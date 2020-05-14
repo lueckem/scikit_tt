@@ -1,6 +1,6 @@
 import numpy as np
 import scikit_tt.data_driven.transform as tdt
-from scikit_tt.data_driven import tgedmd as tgedmd
+from scikit_tt.data_driven import tgedmd_sparse as tgedmd
 from examples.lemon_slice import LemonSlice
 import time
 
@@ -21,7 +21,7 @@ k = 4
 # Integration time step:
 dt = 1e-3
 # Number of time steps:
-m = 500
+m = 5000
 # Initial position:
 x0 = np.ones(d)
 

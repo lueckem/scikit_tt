@@ -49,24 +49,15 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
     s_inv = np.diag(s_inv)
 
     # convert to sparse
-    print('u cores density:')
     for i in range(u.order):
         u.cores[i] = COO(u.cores[i])
-        print(u.cores[i])
-        print(u.cores[i].density)
-        print('')
     s_inv = COO(s_inv)
 
     # calculate M
     print('calculating matrix M for AMUSE...')
-    u.rank_tensordot(s_inv, overwrite=True)
+    u.cores[-1] = np.tensordot(u.cores[-1], s_inv, axes=([3], [0]))
     M = -0.5 * u.tensordot(dpsi, p, mode='first-first')
     M.rank_transpose(overwrite=True)
-    for core in M.cores:
-        print(core)
-        print(core.density)
-        print('')
-
     M.tensordot(dpsi, 2, mode='last-last', overwrite=True)  # MemoryError: cannot resize list (m=5000)
     M.rank_transpose(overwrite=True)
     M.tensordot(u, p, mode='first-first', overwrite=True)

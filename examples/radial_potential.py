@@ -393,8 +393,8 @@ diam = 12 / number_of_boxes
 basis_list_1 = []
 basis_list_2 = []
 for i in range(number_of_boxes):
-    basis_list_1.append(tdt.indicator_function(0, -6 + i * diam, -6 + (i + 1) * diam))
-    basis_list_2.append(tdt.indicator_function(1, -6 + i * diam, -6 + (i + 1) * diam))
+    basis_list_1.append(tdt.IndicatorFunction(0, -6 + i * diam, -6 + (i + 1) * diam))
+    basis_list_2.append(tdt.IndicatorFunction(1, -6 + i * diam, -6 + (i + 1) * diam))
 basis_list = [basis_list_1, basis_list_2]
 
 # construct transformed data matrices

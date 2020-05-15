@@ -43,7 +43,7 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
 
     # calculate M
     print('calculating matrix M for AMUSE...')
-    u.cores[-1] = np.tensordot(u.cores[-1], s_inv, axes=([3], [0]))
+    u.rank_tensordot(s_inv, overwrite=True)
     M = -0.5 * u.tensordot(dpsi, p, mode='first-first')
     M.rank_transpose(overwrite=True)
     M.tensordot(dpsi, 2, mode='last-last', overwrite=True)

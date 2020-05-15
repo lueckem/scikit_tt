@@ -363,6 +363,41 @@ class TestTensordot(TestCase):
         self.assertLess(error, self.tol)
 
 
+class TestRankTensordot(TestCase):
+    def SetUp(self):
+        self.tol = 1e-8
+
+    def test_exceptions(self):
+        t = rand([2, 3, 4], [4, 3, 2], ranks=[1, 2, 3, 4])
+        matrix = np.random.random((4, 2, 3))
+
+        with self.assertRaises(ValueError):
+            t.rank_tensordot(matrix)
+
+        matrix = np.random.random((4, 2))
+        with self.assertRaises(ValueError):
+            t.rank_tensordot(matrix, mode='first')
+
+        with self.assertRaises(ValueError):
+            t.rank_tensordot(matrix, mode='bla')
+
+    def test_rank_tensordot(self):
+        t = rand([2, 3, 4], [4, 3, 2], ranks=[3, 2, 3, 4])
+        matrix1 = np.random.random((4, 2))
+        matrix2 = np.random.random((2, 3))
+
+        last_core = np.tensordot(t.cores[-1], matrix1, axes=([3], [0]))
+        first_core = np.tensordot(matrix2, t.cores[0], axes=([1], [0]))
+
+        t = t.rank_tensordot(matrix1, mode='last')
+        t.rank_tensordot(matrix2, mode='first', overwrite=True)
+
+        self.assertEqual(t.ranks[-1], 2)
+        self.assertEqual(t.ranks[0], 2)
+        self.assertTrue(np.all(t.cores[-1] == last_core))
+        self.assertTrue(np.all(t.cores[0] == first_core))
+
+
 if __name__ == '__main__':
     # simple_test_case()
     ut.main()

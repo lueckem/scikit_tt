@@ -626,6 +626,48 @@ class TT(object):
 
         return tdot
 
+    def rank_tensordot(self, matrix, mode='last', overwrite=False):
+        """ Return index contraction between self and a 2D-array matrix along the first/last rank axis of the first/last
+        core of self. Thus, this method is only useful in the unusual case where self.ranks[0] or self.ranks[-1] != 1.
+        For example, these type of TT's appear as an output of the TT.svd method.
+
+        Parameters
+        ----------
+        matrix: ndarray
+            2D array
+        mode: string
+            one of the following: 'last', 'first'
+        overwrite: bool
+            whether to overwrite self or not, default is False
+
+        Returns
+        -------
+        tdot: instance of TT class
+            tensordot of self and matrix along the first/last rank axis of the first/last core of self
+        """
+        if len(matrix.shape) != 2:
+            raise ValueError('argument matrix has to be 2D-Array')
+
+        # copy self
+        if overwrite is False:
+            tdot = self.copy()
+        else:
+            tdot = self
+
+        if mode == 'last':
+            if tdot.ranks[-1] != matrix.shape[0]:
+                raise ValueError('dimensions do not match')
+            tdot.cores[-1] = np.tensordot(tdot.cores[-1], matrix, axes=([3], [0]))
+        elif mode == 'first':
+            if tdot.ranks[0] != matrix.shape[1]:
+                raise ValueError('dimensions do not match')
+            tdot.cores[0] = np.tensordot(matrix, tdot.cores[0], axes=([1], [0]))
+        else:
+            raise ValueError('unknown mode')
+
+        tdot.ranks = [tdot.cores[i].shape[0] for i in range(tdot.order)] + [tdot.cores[-1].shape[3]]
+        return tdot
+
     def transpose(self, cores=None, conjugate=False, overwrite=False):
         """
         Transpose of tensor trains.

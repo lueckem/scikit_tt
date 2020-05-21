@@ -7,29 +7,29 @@ import time as _time
 from scikit_tt.tensor_train import TT
 
 
-# class Function:
-#     """ Function from R^n -> R. """
-#     def __init__(self, dimension):
-#         self.dimension = dimension
-#
-#     def __call__(self, t):
-#         return None
-#
-#     def partial(self, t, direction):
-#         return None
-#
-#     def partial2(self, t, direction1, direction2):
-#         return None
-#
-#     def gradient(self, t):
-#         return np.array([self.partial(t, i) for i in range(self.dimension)])
-#
-#     def hessian(self, t):
-#         hess = np.zeros((self.dimension, self.dimension))
-#         for i in range(self.dimension):
-#             for j in range(self.dimension):
-#                 hess[i, j] = self.partial2(t, i, j)
-#         return hess
+class Function:
+    """ Function from R^n -> R. """
+    def __init__(self, dimension):
+        self.dimension = dimension
+
+    def __call__(self, t):
+        return None
+
+    def partial(self, t, direction):
+        return None
+
+    def partial2(self, t, direction1, direction2):
+        return None
+
+    def gradient(self, t):
+        return np.array([self.partial(t, i) for i in range(self.dimension)])
+
+    def hessian(self, t):
+        hess = np.zeros((self.dimension, self.dimension))
+        for i in range(self.dimension):
+            for j in range(self.dimension):
+                hess[i, j] = self.partial2(t, i, j)
+        return hess
 
 
 class ConstantFunction:

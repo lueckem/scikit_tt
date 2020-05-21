@@ -7,11 +7,39 @@ import time as _time
 from scikit_tt.tensor_train import TT
 
 
+# class Function:
+#     """ Function from R^n -> R. """
+#     def __init__(self, dimension):
+#         self.dimension = dimension
+#
+#     def __call__(self, t):
+#         return None
+#
+#     def partial(self, t, direction):
+#         return None
+#
+#     def partial2(self, t, direction1, direction2):
+#         return None
+#
+#     def gradient(self, t):
+#         return np.array([self.partial(t, i) for i in range(self.dimension)])
+#
+#     def hessian(self, t):
+#         hess = np.zeros((self.dimension, self.dimension))
+#         for i in range(self.dimension):
+#             for j in range(self.dimension):
+#                 hess[i, j] = self.partial2(t, i, j)
+#         return hess
+
+
 class ConstantFunction:
     def __call__(self, t):
         return 1.0
 
-    def partial(self, t, direction):
+    def partial(t, direction):
+        return 0.0
+
+    def partial2(t, direction1, direction2):
         return 0.0
 
 
@@ -55,6 +83,13 @@ class Identity:
             return 1.0
         return 0.0
 
+    @staticmethod
+    def partial2(self, t, direction1, direction2):
+        return 0.0
+
+    def hessian(self, t, dims):
+        return np.zeros((dims, dims))
+
 
 class Monomial:
     def __init__(self, index, exponent):
@@ -65,9 +100,11 @@ class Monomial:
             index: int
                 define which entry of a snapshot is passed to the identity function
             exponent: int
-                degree of the monomial
+                degree of the monomial, >= 0
         """
         self.index = index
+        if self.exponent < 0:
+            raise ValueError('exponent needs to be >= 0')
         self.exponent = exponent
 
     def __call__(self, t):
@@ -75,8 +112,20 @@ class Monomial:
 
     def partial(self, t, direction):
         if direction == self.index:
-            return self.exponent * t[self.index] ** (self.exponent - 1)
+            if self.exponent > 0:
+                return self.exponent * t[self.index] ** (self.exponent - 1)
         return 0.0
+
+    def partial2(self, t, direction1, direction2):
+        if direction1 == self.index and direction2 == self.index:
+            if self.exponent > 1:
+                return self.exponent * (self.exponent - 1) * t[self.index] ** (self.exponent - 2)
+        return 0.0
+
+    def hessian(self, t, dims):
+        hess = np.zeros((dims, dims))
+        hess[self.index, self.index] = self.partial2(t, self.index, self.index)
+        return hess
 
 
 class Sin:
@@ -101,6 +150,11 @@ class Sin:
             return self.alpha * np.cos(self.alpha * t[self.index])
         return 0.0
 
+    def partial2(self, t, direction1, direction2):
+        if direction1 == self.index and direction2 == self.index:
+            return -(self.alpha ** 2) * np.sin(self.alpha * t[self.index])
+        return 0.0
+
 
 class Cos:
     def __init__(self, index, alpha):
@@ -122,6 +176,11 @@ class Cos:
     def partial(self, t, direction):
         if direction == self.index:
             return -self.alpha * np.sin(self.alpha * t[self.index])
+        return 0.0
+
+    def partial2(self, t, direction1, direction2):
+        if direction1 == self.index and direction2 == self.index:
+            return -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
         return 0.0
 
 

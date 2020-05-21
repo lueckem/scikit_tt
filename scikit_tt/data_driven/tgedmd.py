@@ -33,6 +33,11 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
     print('calculating dpsi...')
     dpsi = tt_decomposition_reversible(data_matrix, basis_list, sigma)
     p = psi.order - 1
+    dpsi.ortho(threshold)
+    print('dpsi cores:')
+    for core in dpsi.cores:
+        print(core.shape)
+    print('')
 
     # SVD of psi
     print('calculating svd of psi...')
@@ -46,10 +51,13 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
     u.rank_tensordot(s_inv, overwrite=True)
     M = -0.5 * u.tensordot(dpsi, p, mode='first-first')
     M.rank_transpose(overwrite=True)
-    M.tensordot(dpsi, 2, mode='last-last', overwrite=True)
+    for core in M.cores:
+        print(core.shape)
+
+    M.tensordot(dpsi, 2, mode='last-last', overwrite=True)  # MemoryError: cannot resize list (m=5000)
     M.rank_transpose(overwrite=True)
     M.tensordot(u, p, mode='first-first', overwrite=True)
-    M = M.cores[0].todense()
+    M = M.cores[0]
     M = np.squeeze(M)
 
     print('calculating eigenvalues and eigentensors...')
@@ -83,7 +91,7 @@ def tt_decomposition_reversible(x, basis_list, sigma):
 
     Returns
     -------
-    dPsiX: instance of TT class
+    dPsiX: TT
         tensor train of basis function evaluations
     """
 
@@ -136,7 +144,7 @@ def dPsix_reversible(psi_k, x, position='middle'):
     ----------
     psi_k: list of instances of function-classes
         [psi_{k,1}, ... , psi_{k, n_k}]
-    x: ndarray
+    x: np.ndarray
         shape (d,)
     position: 'first', 'middle' or 'last', default=None
         first core: k = 1
@@ -145,7 +153,7 @@ def dPsix_reversible(psi_k, x, position='middle'):
 
     Returns
     -------
-    core: ndarray
+    core: np.ndarray
         k-th core of dPsi(x)
     """
 
@@ -177,3 +185,20 @@ def dPsix_reversible(psi_k, x, position='middle'):
             core[i + 1, :, 0, i] = psi_kx
 
     return core
+
+
+def _frob_inner(a, b):
+    """
+    Frobenius inner product of matrices a and b.
+
+    Parameters
+    ----------
+    a : np.ndarray
+    b : np.ndarray
+
+    Returns
+    -------
+    np.ndarray
+    """
+
+    return np.trace(np.inner(a, b))

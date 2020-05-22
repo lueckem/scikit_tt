@@ -12,6 +12,7 @@ class Function:
     Function from R^n -> R.
     All implemented functions should inherit from this class.
     """
+
     def __init__(self, dimension=None):
         if dimension is None:
             self.dimension = 1
@@ -72,12 +73,15 @@ class Function:
             raise ValueError('direction has to be >= 0 and < self.dimension')
 
 
-class IndexFunction(Function):
+class OneCoordinateFunction(Function):
     """
-    Function from R^n -> R, that only depends on one coordinate
+    Function from R^n -> R, that only depends on one coordinate.
+
     All implemented functions, that only depend on one coordinate,
     should inherit from this class.
+    The checks are modified to secure that the coordinate is valid.
     """
+
     def __init__(self, index, dimension=None):
         super().__init__(dimension)
         if self.initialized and not 0 <= index < self.dimension:
@@ -116,19 +120,33 @@ class IndexFunction(Function):
             raise ValueError('direction has to be >= 0 and < self.dimension')
 
 
-class ConstantFunction:
+class ConstantFunction(Function):
+    def __init__(self, dimension=None):
+        super().__init__(dimension)
+
     def __call__(self, t):
+        self.check_call_input(t)
         return 1.0
 
-    def partial(t, direction):
+    def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         return 0.0
 
-    def partial2(t, direction1, direction2):
+    def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
         return 0.0
 
+    def gradient(self, t):
+        self.check_call_input(t)
+        return np.zeros((self.dimension,))
 
-class IndicatorFunction:
-    def __init__(self, index, a, b):
+    def hessian(self, t):
+        self.check_call_input(t)
+        return np.zeros((self.dimension, self.dimension))
+
+
+class IndicatorFunction(OneCoordinateFunction):
+    def __init__(self, index, a, b, dimension=None):
         """ Indicator function.
 
             Parameters
@@ -140,16 +158,23 @@ class IndicatorFunction:
             b: float
                 upper bound of the interval
         """
-        self.index = index
+        super().__init__(index, dimension)
         self.a = a
         self.b = b
 
     def __call__(self, t):
+        self.check_call_input(t)
         return 1 * ((self.a <= t[self.index]) & (t[self.index] < self.b))
 
+    def partial(self, t, direction):
+        raise NotImplementedError('indicator function is not differentiable')
 
-class Identity:
-    def __init__(self, index):
+    def partial2(self, t, direction1, direction2):
+        raise NotImplementedError('indicator function is not differentiable')
+
+
+class Identity(OneCoordinateFunction):
+    def __init__(self, index, dimension=None):
         """ Identiy function.
 
             Parameters
@@ -157,25 +182,28 @@ class Identity:
             index: int
                 define which entry of a snapshot is passed to the identity function
         """
-        self.index = index
+        super().__init__(index, dimension)
 
     def __call__(self, t):
+        self.check_call_input(t)
         return t[self.index]
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             return 1.0
         return 0.0
 
-    @staticmethod
     def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
         return 0.0
 
-    def hessian(self, t, dims):
-        return np.zeros((dims, dims))
+    def hessian(self, t):
+        self.check_call_input(t)
+        return np.zeros((self.dimension, self.dimension))
 
 
-class Monomial(IndexFunction):
+class Monomial(OneCoordinateFunction):
     def __init__(self, index, exponent, dimension=None):
         """ Monomial function.
 
@@ -222,8 +250,8 @@ class Monomial(IndexFunction):
         return hess
 
 
-class Sin:
-    def __init__(self, index, alpha):
+class Sin(OneCoordinateFunction):
+    def __init__(self, index, alpha, dimension=None):
         """ Sine function.
 
             Parameters
@@ -233,25 +261,41 @@ class Sin:
             alpha: float
                 prefactor
         """
+        super().__init__(index, dimension)
         self.index = index
         self.alpha = alpha
 
     def __call__(self, t):
+        self.check_call_input(t)
         return np.sin(self.alpha * t[self.index])
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             return self.alpha * np.cos(self.alpha * t[self.index])
         return 0.0
 
     def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
         if direction1 == self.index and direction2 == self.index:
             return -(self.alpha ** 2) * np.sin(self.alpha * t[self.index])
         return 0.0
 
+    def gradient(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension,))
+        out[self.index] = self.alpha * np.cos(self.alpha * t[self.index])
+        return out
 
-class Cos:
-    def __init__(self, index, alpha):
+    def hessian(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension, self.dimension))
+        out[self.index, self.index] = -(self.alpha ** 2) * np.sin(self.alpha * t[self.index])
+        return out
+
+
+class Cos(OneCoordinateFunction):
+    def __init__(self, index, alpha, dimension=None):
         """ Cosine function.
 
             Parameters
@@ -261,25 +305,40 @@ class Cos:
             alpha: float
                 prefactor
         """
-        self.index = index
+        super().__init__(index, dimension)
         self.alpha = alpha
 
     def __call__(self, t):
+        self.check_call_input(t)
         return np.cos(self.alpha * t[self.index])
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             return -self.alpha * np.sin(self.alpha * t[self.index])
         return 0.0
 
     def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
         if direction1 == self.index and direction2 == self.index:
             return -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
         return 0.0
 
+    def gradient(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension,))
+        out[self.index] = -self.alpha * np.sin(self.alpha * t[self.index])
+        return out
 
-class GaussFunction:
-    def __init__(self, index, mean, variance):
+    def hessian(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension, self.dimension))
+        out[self.index, self.index] = -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
+        return out
+
+
+class GaussFunction(OneCoordinateFunction):
+    def __init__(self, index, mean, variance, dimension=None):
         """ Gauss function.
 
             Parameters
@@ -291,46 +350,82 @@ class GaussFunction:
             variance: float (>0)
                 variance
         """
-        self.index = index
+        super().__init__(index, dimension)
         self.mean = mean
+        if variance <= 0:
+            raise ValueError('variance must be > 0')
         self.variance = variance
 
     def __call__(self, t):
+        self.check_call_input(t)
         return np.exp(-0.5 * (t[self.index] - self.mean) ** 2 / self.variance)
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             return -np.exp(-(0.5 * (self.mean - t[self.index]) ** 2) / self.variance) * \
                    (-self.mean + t[self.index]) / self.variance
         return 0.0
 
+    def partial2(self, t, direction1, direction2):
+        raise NotImplementedError('not yet implemented')
 
-class PeriodicGaussFunction:
-    def __init__(self, index, mean, variance):
-        """ Periodic Gauss function.
+    def gradient(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension,))
+        out[self.index] = -np.exp(-(0.5 * (self.mean - t[self.index]) ** 2) /
+                                  self.variance) * (-self.mean + t[self.index]) / self.variance
+        return out
 
-                Parameters
-                ----------
-                index: int
-                    define which entry of a snapshot is passed to the periodic Gauss function
-                mean: float
-                    mean of the distribution
-                variance: float (>0)
-                    variance
+    def hessian(self, t):
+        raise NotImplementedError('not yet implemented')
+
+
+class PeriodicGaussFunction(OneCoordinateFunction):
+    def __init__(self, index, mean, variance, dimension=None):
         """
-        self.index = index
+        Periodic Gauss function.
+
+        Parameters
+        ----------
+        index: int
+            define which entry of a snapshot is passed to the periodic Gauss function
+        mean: float
+            mean of the distribution
+        variance: float (>0)
+            variance
+        """
+        super().__init__(index, dimension)
         self.mean = mean
+        if variance <= 0:
+            raise ValueError('variance must be > 0')
         self.variance = variance
 
     def __call__(self, t):
+        self.check_call_input(t)
         return np.exp(-0.5 * np.sin(0.5 * (t[self.index] - self.mean)) ** 2 / self.variance)
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             return (0.5 * np.exp(-(0.5 * np.sin(0.5 * self.mean - 0.5 * t[self.index]) ** 2) / self.variance) *
                     np.cos(0.5 * self.mean - 0.5 * t[self.index]) * np.sin(0.5 * self.mean - 0.5 * t[self.index])) \
                    / self.variance
         return 0.0
+
+    def partial2(self, t, direction1, direction2):
+        raise NotImplementedError('not yet implemented')
+
+    def gradient(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension,))
+        out[self.index] = (0.5 * np.exp(-(0.5 * np.sin(0.5 * self.mean - 0.5 * t[self.index]) ** 2) / self.variance) *
+                           np.cos(0.5 * self.mean - 0.5 * t[self.index]) * np.sin(
+                    0.5 * self.mean - 0.5 * t[self.index])) / self.variance
+        return out
+
+    def hessian(self, t):
+        raise NotImplementedError('not yet implemented')
 
 
 def basis_decomposition(x, phi, single_core=None):
@@ -626,6 +721,7 @@ def function_major(x, phi, add_one=True, single_core=None):
 
     return psi
 
+
 def gram(x_1, x_2, basis_list):
     """Gram matrix.
 
@@ -830,6 +926,7 @@ def hocur(x, basis_list, ranks, repeats=1, multiplier=10, progress=True, string=
     psi = TT(cores)
 
     return psi
+
 
 # private functions # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 

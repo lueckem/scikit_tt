@@ -319,11 +319,6 @@ class Cos(OneCoordinateFunction):
         return 0.0
 
     def partial2(self, t, direction1, direction2):
-        if direction1 == self.index and direction2 == self.index:
-            return -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
-        return 0.0
-
-    def partial2(self, t, direction1, direction2):
         self.check_partial2_input(t, direction1, direction2)
         if direction1 == self.index and direction2 == self.index:
             return -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])

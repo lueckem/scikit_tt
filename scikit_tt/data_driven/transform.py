@@ -8,28 +8,112 @@ from scikit_tt.tensor_train import TT
 
 
 class Function:
-    """ Function from R^n -> R. """
-    def __init__(self, dimension):
-        self.dimension = dimension
+    """
+    Function from R^n -> R.
+    All implemented functions should inherit from this class.
+    """
+    def __init__(self, dimension=None):
+        if dimension is None:
+            self.dimension = 1
+            self.initialized = False
+        else:
+            if dimension < 1:
+                raise ValueError('dimension has to be >= 1')
+            self.dimension = dimension
+            self.initialized = True
 
     def __call__(self, t):
-        return None
+        self.check_call_input(t)
+        return 0
 
     def partial(self, t, direction):
-        return None
+        self.check_partial_input(t, direction)
+        return 0
 
     def partial2(self, t, direction1, direction2):
-        return None
+        self.check_partial2_input(t, direction1, direction2)
+        return 0
 
     def gradient(self, t):
+        self.check_call_input(t)
         return np.array([self.partial(t, i) for i in range(self.dimension)])
 
     def hessian(self, t):
+        self.check_call_input(t)
         hess = np.zeros((self.dimension, self.dimension))
         for i in range(self.dimension):
             for j in range(self.dimension):
                 hess[i, j] = self.partial2(t, i, j)
         return hess
+
+    def check_call_input(self, t):
+        if not self.initialized:
+            self.dimension = len(t)
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+
+    def check_partial_input(self, t, direction):
+        if not self.initialized:
+            self.dimension = len(t)
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+        elif not 0 <= direction < self.dimension:
+            raise ValueError('direction has to be >= 0 and < self.dimension')
+
+    def check_partial2_input(self, t, direction1, direction2):
+        if not self.initialized:
+            self.dimension = len(t)
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+        elif not 0 <= direction1 < self.dimension or not 0 <= direction2 < self.dimension:
+            raise ValueError('direction has to be >= 0 and < self.dimension')
+
+
+class IndexFunction(Function):
+    """
+    Function from R^n -> R, that only depends on one coordinate
+    All implemented functions, that only depend on one coordinate,
+    should inherit from this class.
+    """
+    def __init__(self, index, dimension=None):
+        super().__init__(dimension)
+        if self.initialized and not 0 <= index < self.dimension:
+            raise ValueError('index has to be >= 0 and < dimension')
+        self.index = index
+
+    def check_call_input(self, t):
+        if not self.initialized:
+            self.dimension = len(t)
+            if not 0 <= self.index < self.dimension:
+                raise ValueError('index has to be >= 0 and < dimension')
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+
+    def check_partial_input(self, t, direction):
+        if not self.initialized:
+            self.dimension = len(t)
+            if not 0 <= self.index < self.dimension:
+                raise ValueError('index has to be >= 0 and < dimension')
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+        elif not 0 <= direction < self.dimension:
+            raise ValueError('direction has to be >= 0 and < self.dimension')
+
+    def check_partial2_input(self, t, direction1, direction2):
+        if not self.initialized:
+            self.dimension = len(t)
+            if not 0 <= self.index < self.dimension:
+                raise ValueError('index has to be >= 0 and < dimension')
+            self.initialized = True
+        elif len(t) != self.dimension:
+            raise ValueError('wrong dimension of t')
+        elif not 0 <= direction1 < self.dimension or not 0 <= direction2 < self.dimension:
+            raise ValueError('direction has to be >= 0 and < self.dimension')
 
 
 class ConstantFunction:
@@ -91,39 +175,49 @@ class Identity:
         return np.zeros((dims, dims))
 
 
-class Monomial:
-    def __init__(self, index, exponent):
+class Monomial(IndexFunction):
+    def __init__(self, index, exponent, dimension=None):
         """ Monomial function.
 
             Parameters
             ----------
             index: int
-                define which entry of a snapshot is passed to the identity function
+                define which entry of a snapshot is passed to the Monomial
             exponent: int
                 degree of the monomial, >= 0
         """
-        self.index = index
-        if self.exponent < 0:
+        super().__init__(index, dimension)
+        if exponent < 0:
             raise ValueError('exponent needs to be >= 0')
         self.exponent = exponent
 
     def __call__(self, t):
+        self.check_call_input(t)
         return t[self.index] ** self.exponent
 
     def partial(self, t, direction):
+        self.check_partial_input(t, direction)
         if direction == self.index:
             if self.exponent > 0:
                 return self.exponent * t[self.index] ** (self.exponent - 1)
         return 0.0
 
     def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
         if direction1 == self.index and direction2 == self.index:
             if self.exponent > 1:
                 return self.exponent * (self.exponent - 1) * t[self.index] ** (self.exponent - 2)
         return 0.0
 
-    def hessian(self, t, dims):
-        hess = np.zeros((dims, dims))
+    def gradient(self, t):
+        self.check_call_input(t)
+        out = np.zeros((self.dimension,))
+        out[self.index] = self.partial(t, self.index)
+        return out
+
+    def hessian(self, t):
+        self.check_call_input(t)
+        hess = np.zeros((self.dimension, self.dimension))
         hess[self.index, self.index] = self.partial2(t, self.index, self.index)
         return hess
 

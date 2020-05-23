@@ -429,7 +429,8 @@ class PeriodicGaussFunction(OneCoordinateFunction):
 
 
 def basis_decomposition(x, phi, single_core=None):
-    """Construct a transformed data tensor in TT format.
+    """
+    Construct a transformed data tensor in TT format.
 
     Given a set of basis functions phi, construct a TT decomposition psi of the tensor
 
@@ -453,12 +454,12 @@ def basis_decomposition(x, phi, single_core=None):
         snapshot matrix of size d x m
     phi: list[list[function]]
         list of basis functions in every mode
-    single_core: None or int, optional
+    single_core : None or int, optional
         return only the ith core of psi if single_core=i (<p), default is None
 
     Returns
     -------
-    psi: instance of TT class or np.ndarray
+    psi : TT or np.ndarray
         tensor train of basis function evaluations if single_core=None, 4-dimensional array if single core
         is an integer
 
@@ -523,7 +524,8 @@ def basis_decomposition(x, phi, single_core=None):
 
 
 def coordinate_major(x, phi, single_core=None):
-    """Construct a transformed data tensor in TT format using the coordinate-major approach.
+    """
+    Construct a transformed data tensor in TT format using the coordinate-major approach.
 
     Given a set of basis functions phi, construct a TT decomposition psi of the form::
 
@@ -547,12 +549,12 @@ def coordinate_major(x, phi, single_core=None):
         snapshot matrix of size d x m
     phi: list[function]
         list of basis functions
-    single_core: None or int, optional
+    single_core : None or int, optional
         return only the ith core of psi if single_core=i (<p), default is None
 
     Returns
     -------
-    psi: instance of TT class
+    psi : TT
         tensor train of basis function evaluations
 
     References
@@ -614,7 +616,8 @@ def coordinate_major(x, phi, single_core=None):
 
 
 def function_major(x, phi, add_one=True, single_core=None):
-    """Construct a transformed data tensor in TT format using the function-major approach.
+    """
+    Construct a transformed data tensor in TT format using the function-major approach.
 
     Given a set of basis functions phi, construct a TT decomposition psi of the form::
 
@@ -634,16 +637,16 @@ def function_major(x, phi, add_one=True, single_core=None):
 
     Parameters
     ----------
-    x : np.np.ndarray
+    x : np.ndarray
         snapshot matrix of size d x m
     phi : list[function]
         list of basis functions
-    add_one: bool, optional
+    add_one : bool, optional
         whether to add the basis function 1 to the cores or not, default is True
 
     Returns
     -------
-    psi: instance of TT class
+    psi : TT
         tensor train of basis function evaluations
 
     References
@@ -723,7 +726,8 @@ def function_major(x, phi, add_one=True, single_core=None):
 
 
 def gram(x_1, x_2, basis_list):
-    """Gram matrix.
+    """
+    Gram matrix.
 
     Compute the Gram matrix of two transformed data tensors psi_1=psi(x_1) and psi_2=psi(x_2), i.e., psi_1^T@psi_2. See
     _[1] for details.
@@ -758,7 +762,8 @@ def gram(x_1, x_2, basis_list):
 
 
 def hocur(x, basis_list, ranks, repeats=1, multiplier=10, progress=True, string=None):
-    """Higher-order CUR decomposition of transformed data tensors.
+    """
+    Higher-order CUR decomposition of transformed data tensors.
 
     Given a snapshot matrix x and a list of basis functions in each mode, construct a TT decomposition of the
     transformed data tensor Psi(x) using a higher-order CUR decomposition and maximum-volume subtensors. See [1]_, [2]_
@@ -774,19 +779,19 @@ def hocur(x, basis_list, ranks, repeats=1, multiplier=10, progress=True, string=
         maximum TT ranks of the resulting TT representation; if type is int, then the ranks are set to
         [1, ranks, ..., ranks, 1]; note that - depending on the number of linearly independent rows/columns that have
         been found - the TT ranks may be reduced during the decomposition
-    repeats: int, optional
+    repeats : int, optional
         number of repeats, default is 1
-    multiplier: int, optional
+    multiplier : int, optional
         multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
         finding a 'full' set of linearly independent columns; default is 10
-    progress: bool, optional
+    progress : bool, optional
         whether to show the progress of the algorithm or not, default is True
-    string: string
+    string : string
         string to print; if None (default), then print 'HOCUR (repeats: <repeats>)'
 
     Returns
     -------
-    psi: instance of TT class
+    psi : TT
         TT representation of the transformed data tensor
 
     References
@@ -931,7 +936,8 @@ def hocur(x, basis_list, ranks, repeats=1, multiplier=10, progress=True, string=
 # private functions # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 def __hocur_first_col_inds(dimensions, ranks, multiplier):
-    """Create random column indices
+    """
+    Create random column indices.
 
     Parameters
     ----------
@@ -939,7 +945,7 @@ def __hocur_first_col_inds(dimensions, ranks, multiplier):
         dimensions of a given tensor
     ranks: list[int]
         ranks for decomposition
-    multiplier: int
+    multiplier : int
         multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
         finding a 'full' set of linearly independent columns
 
@@ -969,7 +975,8 @@ def __hocur_first_col_inds(dimensions, ranks, multiplier):
 
 
 def __hocur_extract_matrix(data, basis_list, row_coordinates_list, col_coordinates_list):
-    """Extraction of a submatrix of a transformed data tensor.
+    """
+    Extraction of a submatrix of a transformed data tensor.
 
     Given a set of row and column coordinates, extracts a submatrix from the transformed data tensor corresponding to
     the data matrix x and the set of basis functions stored in basis_list.
@@ -1101,12 +1108,13 @@ def __hocur_extract_matrix(data, basis_list, row_coordinates_list, col_coordinat
 
 
 def __hocur_find_li_cols(matrix, tol=1e-14):
-    """Find linearly independent columns of a matrix.
+    """
+    Find linearly independent columns of a matrix.
 
     Parameters
     ----------
-    matrix: np.ndarray (m,n)
-        rectangular matrix
+    matrix : np.ndarray
+        rectangular matrix, shape (m,n)
 
     Returns
     -------
@@ -1131,17 +1139,18 @@ def __hocur_find_li_cols(matrix, tol=1e-14):
 
 
 def __hocur_maxvolume(matrix, maximum_iterations=1000, tolerance=1e-5):
-    """Find dominant submatrix.
+    """
+    Find dominant submatrix.
 
     Find rows of a given rectangular matrix which build a maximum-volume submatrix, see [1]_.
 
     Parameters
     ----------
-    matrix: np.ndarray (n,r)
-        rectangular matrix with rank r
-    maximum_iterations: int
+    matrix : np.ndarray
+        rectangular matrix with rank r, shape (n,r)
+    maximum_iterations : int
         maximum number of iterations, default is 100
-    tolerance: float
+    tolerance : float
         tolerance for stopping criterion, default is 1e-5
 
     Returns

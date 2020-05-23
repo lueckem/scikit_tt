@@ -127,6 +127,10 @@ class LemonSlice:
             dV[ii, :] = self.alpha * x[ii, :]
         return dV
 
+    def drift(self, x):
+        # todo
+        return np.zeros((self.d,))
+
     def diffusion(self, x):
         """
         Evaluate diffusion sigma at position x

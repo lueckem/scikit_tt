@@ -21,7 +21,7 @@ k = 4
 # Integration time step:
 dt = 1e-3
 # Number of time steps:
-m = 500
+m = 3000
 # Initial position:
 x0 = np.ones(d)
 
@@ -35,7 +35,7 @@ basis_list = []
 for i in range(d):
     basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(1, 5)])
 
-eigvals, eigtensors = tgedmd.amuset_reversible_exact(data, basis_list, LS.diffusion)
+eigvals, eigtensors = tgedmd.amuset_hosvd(data, basis_list, LS.drift, LS.diffusion)
 print(eigvals)
 
 

@@ -3,6 +3,74 @@ from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function
 
 
+def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
+    """
+    AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
+    The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
+
+    Parameters
+    ----------
+    data_matrix : np.ndarray
+        snapshot matrix, shape (d, m)
+    basis_list : list of (list of Function)
+        list of basis functions in every mode
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float
+        threshold for svd of psi
+
+    Returns
+    -------
+    eigvals : np.ndarray
+        eigenvalues of Koopman generator
+    eigtensors : list of TT
+        eigentensors of Koopman generator
+    """
+
+    # calculate psi and dpsi
+    print('calculating psi...')
+    psi = basis_decomposition(data_matrix, basis_list)
+    print('calculating dpsi...')
+    dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
+    p = dpsi.order - 1
+    print(dpsi)
+
+    # SVD of psi
+    print('calculating svd of psi...')
+    u, s, v = psi.svd(psi.order - 1, threshold=threshold)
+    s_inv = 1.0 / s
+    s = np.diag(s)
+    s_inv = np.diag(s_inv)
+
+    # SVD of dpsi (for rank reduction)
+    dpsi = dpsi.ortho(threshold=threshold)
+
+    # calculate M
+    print('calculating matrix M for AMUSE...')
+    M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
+    M.tensordot(u, p, mode='first-first', overwrite=True)
+    # M.rank_transpose(overwrite=True) ?
+    M = M.cores[0][:, 0, 0, :]
+
+    print('calculating eigenvalues and eigentensors...')
+    # calculate eigenvalues of M
+    eigvals, eigvecs = np.linalg.eig(M)
+
+    # calculate eigentensors
+    eigvecs = eigvecs[:, :, np.newaxis]
+    eigtensors = []
+    for i in range(eigvals.shape[0]):
+        eigtensor = u.copy()
+        eigtensor.cores[-1] = np.tensordot(eigtensor.cores[-1], eigvecs[:, i, :], axes=([3], [0]))
+        eigtensor.ranks = [eigtensor.cores[i].shape[0] for i in range(eigtensor.order)] + [eigtensor.cores[-1].shape[3]]
+        eigtensors.append(eigtensor)
+
+    return eigvals, eigtensors
+
+
 def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator. Assuming reversible dynamics.
@@ -10,20 +78,20 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
 
     Parameters
     ----------
-    data_matrix: ndarray
+    data_matrix : np.ndarray
         snapshot matrix, shape (d, m)
-    basis_list: list of lists of instances of function-classes
-        list of basis functions in every mode, classes need to have methods "__call" and "partial"
-    sigma: diffusion
-        sigma(data_matrix[:, k]) should have shape (d, d)
-    threshold: float
+    basis_list : list of (list of Function)
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float
         threshold for svd of psi
 
     Returns
     -------
-    eigvals: ndarray
+    eigvals : np.ndarray
         eigenvalues of Koopman generator
-    eigtensors: list of instances of TT class
+    eigtensors : list of TT
         eigentensors of Koopman generator
     """
 
@@ -82,10 +150,10 @@ def tt_decomposition(x, basis_list, b, sigma):
 
     Parameters
     ----------
-    x: np.ndarray
+    x : np.ndarray
         snapshot matrix of size d x m
-    basis_list: list of lists of instances of function-classes
-        list of basis functions in every mode, classes need to have methods "__call__", "partial" and "hessian"
+    basis_list : list of (list of Function)
+        list of basis functions in every mode
     b : function
         drift, b:R^d -> R^d
     sigma : function
@@ -93,7 +161,7 @@ def tt_decomposition(x, basis_list, b, sigma):
 
     Returns
     -------
-    dPsiX: TT
+    dPsiX : TT
         tensor train of basis function evaluations
     """
 
@@ -123,8 +191,8 @@ def tt_decomposition(x, basis_list, b, sigma):
 
     # insert elements of core p
     for k in range(m):
-        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
-                                                                      position='last')
+        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
+                                                                        position='last')
 
     # append core containing unit vectors
     cores.append(np.eye(m).reshape(m, m, 1, 1))
@@ -139,15 +207,15 @@ def dPsix(psi_k, x, b, sigma, position='middle'):
 
     Parameters
     ----------
-    psi_k: list of instances of function-classes
+    psi_k : list of Function
         [psi_{k,1}, ... , psi_{k, n_k}]
-    x: np.ndarray
+    x : np.ndarray
         shape (d,)
     b : function
         drift, b:R^d -> R^d
     sigma : function
         diffusion, sigma: R^d -> R^(d,d)
-    position: 'first', 'middle' or 'last', default=None
+    position : {'first', 'middle', 'last'}, optional
         first core: k = 1
         middle core: 2 <= k <= p-1
         last core: k = p
@@ -205,11 +273,11 @@ def tt_decomposition_reversible(x, basis_list, sigma):
 
     Parameters
     ----------
-    x: np.ndarray
+    x : np.ndarray
         snapshot matrix of size d x m
-    basis_list: list of lists of instances of function-classes
+    basis_list: list of (list of Function)
         list of basis functions in every mode, classes need to have methods "__call" and "partial"
-    sigma: function
+    sigma : function
         diffusion, sigma(x[:,k]) should have shape (d, d)
 
     Returns
@@ -265,11 +333,11 @@ def dPsix_reversible(psi_k, x, position='middle'):
 
     Parameters
     ----------
-    psi_k: list of instances of function-classes
+    psi_k : list of Function
         [psi_{k,1}, ... , psi_{k, n_k}]
-    x: np.ndarray
+    x : np.ndarray
         shape (d,)
-    position: 'first', 'middle' or 'last', default=None
+    position: {'first', 'middle', 'last'}, optional
         first core: k = 1
         middle core: 2 <= k <= p-1
         last core: k = p

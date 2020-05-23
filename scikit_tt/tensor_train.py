@@ -526,7 +526,18 @@ class TT(object):
             raise ValueError('axes do not match')
 
         # check if the needed ranks are 1
-        # todo
+        if mode == 'last-first':
+            if self.ranks[-1] != 1 or other.ranks[0] != 1:
+                raise ValueError('last rank of self and first rank of other have to be 1')
+        elif mode == 'last-last':
+            if self.ranks[-1] != 1 or other.ranks[-1] != 1:
+                raise ValueError('last rank of self and last rank of other have to be 1')
+        elif mode == 'first-last':
+            if self.ranks[0] != 1 or other.ranks[-1] != 1:
+                raise ValueError('first rank of self and last rank of other have to be 1')
+        else:  # mode == 'first-first':
+            if self.ranks[0] != 1 or other.ranks[0] != 1:
+                raise ValueError('first rank of self and first rank of other have to be 1')
 
         # copy self
         if overwrite is False:

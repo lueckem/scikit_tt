@@ -12,7 +12,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     ----------
     data_matrix : np.ndarray
         snapshot matrix, shape (d, m)
-    basis_list : list of (list of Function)
+    basis_list : (list of (list of Function))
         list of basis functions in every mode
     b : function
         drift, b:R^d -> R^d
@@ -35,7 +35,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     print('calculating dpsi...')
     dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
     p = dpsi.order - 1
-    print(dpsi)
+    print(np.max(dpsi.full()))
 
     # SVD of psi
     print('calculating svd of psi...')
@@ -45,11 +45,13 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     s_inv = np.diag(s_inv)
 
     # SVD of dpsi (for rank reduction)
-    dpsi = dpsi.ortho(threshold=threshold)
+    # dpsi = dpsi.ortho_left(threshold=threshold)
 
     # calculate M
+    print(dpsi.norm())
     print('calculating matrix M for AMUSE...')
     M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
+
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
     M.tensordot(u, p, mode='first-first', overwrite=True)
     # M.rank_transpose(overwrite=True) ?
@@ -69,6 +71,175 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
         eigtensors.append(eigtensor)
 
     return eigvals, eigtensors
+
+
+def tt_decomposition(x, basis_list, b, sigma):
+    """
+    Calculates dPsi(X).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : (list of (list of Function))
+        list of basis functions in every mode
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+
+    Returns
+    -------
+    dPsiX : TT
+        tensor train of basis function evaluations
+    """
+
+    # number of snapshots
+    m = x.shape[1]
+    # dimension
+    d = x.shape[0]
+    # number of modes
+    p = len(basis_list)
+    # mode dimensions
+    n = [len(basis_list[i]) for i in range(p)]
+
+    # define cores 1,...,p as a list of empty arrays
+    cores = [np.zeros([1, n[0], 1, m * (d + 2)])] + \
+            [np.zeros([m * (d + 2), n[i], 1, m * (d + 2)]) for i in range(1, p - 1)] + \
+            [np.zeros([m * (d + 2), n[p - 1], 1, m])]
+
+    # insert elements of core 1
+    cores[0] = np.concatenate([dPsix(basis_list[0], x[:, k], b, sigma, position='first') for k in range(m)],
+                              axis=3)
+
+    # insert elements of cores 2,...,p-1
+    for i in range(1, p - 1):
+        for k in range(m):
+            cores[i][k * (d + 2): (k + 1) * (d + 2), :, :, k * (d + 2): (k + 1) * (d + 2)] = dPsix(
+                basis_list[i], x[:, k], b, sigma, position='middle')
+
+    # insert elements of core p
+    for k in range(m):
+        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
+                                                                        position='last')
+
+    # append core containing unit vectors
+    cores.append(np.eye(m).reshape(m, m, 1, 1))
+
+    dPsiX = TT(cores)
+    return dPsiX
+
+
+def dPsix(psi_k, x, b, sigma, position='middle'):
+    """
+    Computes the k-th core of dPsi(x).
+
+    Parameters
+    ----------
+    psi_k : (list of Function)
+        [psi_{k,1}, ... , psi_{k, n_k}]
+    x : np.ndarray
+        shape (d,)
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    position : {'first', 'middle', 'last'}, optional
+        first core: k = 1
+        middle core: 2 <= k <= p-1
+        last core: k = p
+
+    Returns
+    -------
+    np.ndarray
+        k-th core of dPsi(x)
+    """
+
+    d = x.shape[0]
+    nk = len(psi_k)
+    psi_kx = [fun(x) for fun in psi_k]
+    a = sigma(x) @ sigma(x).T
+
+    partial_psi_kx = np.zeros((nk, d))
+
+    for i in range(nk):
+        partial_psi_kx[i, :] = psi_k[i].gradient(x)
+
+    if position == 'middle':
+        core = np.zeros((d + 2, nk, 1, d + 2))
+
+        # diagonal
+        for i in range(d + 2):
+            core[i, :, 0, i] = psi_kx
+
+        # 1. row
+        core[0, :, 0, 1] = [_generator(fun, x, b, sigma) for fun in psi_k]
+        core[0, :, 0, 2:] = partial_psi_kx
+
+        # 2. column
+        for i in range(2, d + 2):
+            core[i, :, 0, 1] = [np.inner(a[i - 2, :], partial_psi_kx[row, :]) for row in range(nk)]
+
+    elif position == 'first':
+        core = np.zeros((1, nk, 1, d + 2))
+        core[0, :, 0, 0] = psi_kx
+        core[0, :, 0, 1] = [_generator(fun, x, b, sigma) for fun in psi_k]
+        core[0, :, 0, 2:] = partial_psi_kx
+
+    else:  # position == 'last'
+        core = np.zeros((d + 2, nk, 1, 1))
+        core[0, :, 0, 0] = [_generator(fun, x, b, sigma) for fun in psi_k]
+        core[1, :, 0, 0] = psi_kx
+
+        for i in range(2, d + 2):
+            core[i, :, 0, 0] = [np.inner(a[i - 2, :], partial_psi_kx[row, :]) for row in range(nk)]
+
+    return core
+
+
+def generator_on_product(basis_list, s, x, b, sigma):
+    """
+    Evaluate the Koopman generator operating on the following function
+    f = basis_list[1][s[1]] * ... * basis_list[p][s[p]]
+    in x.
+
+    Parameters
+    ----------
+    basis_list : (list of (list of Function))
+    s : tuple
+        indices of basis functions
+    x : np.ndarray
+        shape(d,)
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+
+    Returns
+    -------
+    float
+    """
+
+    p = len(s)
+    a = sigma(x) @ sigma(x).T
+
+    out = 0
+    for j in range(p):
+        product = 1
+        for l in range(p):
+            if l == j:
+                continue
+            product *= basis_list[l][s[l]](x)
+        out += product * _generator(basis_list[j][s[j]], x, b, sigma)
+
+        for v in range(j + 1, p):
+            product = 1
+            for l in range(p):
+                if l == j or l == v:
+                    continue
+                product *= basis_list[l][s[l]](x)
+            out += product * _frob_inner(a, np.outer(basis_list[v][s[v]].gradient(x), basis_list[j][s[j]].gradient(x)))
+    return out
 
 
 def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
@@ -142,129 +313,6 @@ def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
         eigtensors.append(eigtensor)
 
     return eigvals, eigtensors
-
-
-def tt_decomposition(x, basis_list, b, sigma):
-    """
-    Calculates dPsi(X).
-
-    Parameters
-    ----------
-    x : np.ndarray
-        snapshot matrix of size d x m
-    basis_list : list of (list of Function)
-        list of basis functions in every mode
-    b : function
-        drift, b:R^d -> R^d
-    sigma : function
-        diffusion, sigma: R^d -> R^(d,d)
-
-    Returns
-    -------
-    dPsiX : TT
-        tensor train of basis function evaluations
-    """
-
-    # number of snapshots
-    m = x.shape[1]
-    # dimension
-    d = x.shape[0]
-    # number of modes
-    p = len(basis_list)
-    # mode dimensions
-    n = [len(basis_list[i]) for i in range(p)]
-
-    # define cores 1,...,p as a list of empty arrays
-    cores = [np.zeros([1, n[0], 1, m * (d + 2)])] + \
-            [np.zeros([m * (d + 2), n[i], 1, m * (d + 2)]) for i in range(1, p - 1)] + \
-            [np.zeros([m * (d + 2), n[p - 1], 1, m])]
-
-    # insert elements of core 1
-    cores[0] = np.concatenate([dPsix(basis_list[0], x[:, k], b, sigma, position='first') for k in range(m)],
-                              axis=3)
-
-    # insert elements of cores 2,...,p-1
-    for i in range(1, p - 1):
-        for k in range(m):
-            cores[i][k * (d + 2): (k + 1) * (d + 2), :, :, k * (d + 2): (k + 1) * (d + 2)] = dPsix(
-                basis_list[i], x[:, k], b, sigma, position='middle')
-
-    # insert elements of core p
-    for k in range(m):
-        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
-                                                                        position='last')
-
-    # append core containing unit vectors
-    cores.append(np.eye(m).reshape(m, m, 1, 1))
-
-    dPsiX = TT(cores)
-    return dPsiX
-
-
-def dPsix(psi_k, x, b, sigma, position='middle'):
-    """
-    Computes the k-th core of dPsi(x).
-
-    Parameters
-    ----------
-    psi_k : list of Function
-        [psi_{k,1}, ... , psi_{k, n_k}]
-    x : np.ndarray
-        shape (d,)
-    b : function
-        drift, b:R^d -> R^d
-    sigma : function
-        diffusion, sigma: R^d -> R^(d,d)
-    position : {'first', 'middle', 'last'}, optional
-        first core: k = 1
-        middle core: 2 <= k <= p-1
-        last core: k = p
-
-    Returns
-    -------
-    np.ndarray
-        k-th core of dPsi(x)
-    """
-
-    d = x.shape[0]
-    nk = len(psi_k)
-    psi_kx = [fun(x) for fun in psi_k]
-    a = sigma(x) @ sigma(x).T
-
-    partial_psi_kx = np.zeros((nk, d))
-    for i in range(d):
-        partial_psi_kx[:, i] = [fun.partial(x, i) for fun in psi_k]
-
-    if position == 'middle':
-        core = np.zeros((d + 2, nk, 1, d + 2))
-
-        # diagonal
-        for i in range(d + 2):
-            core[i, :, 0, i] = psi_kx
-
-        # 1. row
-        core[0, :, 0, 1] = [_generator(fun, x, b, sigma) for fun in psi_k]
-        core[0, :, 0, 2:] = partial_psi_kx
-
-        # 2. column
-        for i in range(2, d + 2):
-            core[i, :, 0, 1] = [np.inner(a[i - 2, :], partial_psi_kx[row, :]) for row in range(nk)]
-
-    elif position == 'first':
-        core = np.zeros((1, nk, 1, d + 2))
-        core[0, :, 0, 0] = psi_kx
-        core[0, :, 0, 1] = [_generator(fun, x, b, sigma) for fun in psi_k]
-        core[0, :, 0, 2:] = partial_psi_kx
-
-    else:  # position == 'last'
-        core = np.zeros((d + 2, nk, 1, 1))
-        core[0, :, 0, 0] = [_generator(fun, x, b, sigma) for fun in psi_k]
-        core[1, :, 0, 0] = psi_kx
-
-        for i in range(2, d + 2):
-            core[i, :, 0, 0] = [np.inner(a[i - 2, :], partial_psi_kx[row, :]) for row in range(nk)]
-
-    return core
 
 
 def tt_decomposition_reversible(x, basis_list, sigma):

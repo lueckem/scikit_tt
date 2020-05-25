@@ -128,14 +128,23 @@ class LemonSlice:
         return dV
 
     def drift(self, x):
-        # todo
-        return np.zeros((self.d,))
+        """
+        Parameters
+        ----------
+        x : np.ndarray
+            single point, shape (d,)
+
+        Returns
+        -------
+        np.ndarray
+        """
+        return -self.gradient(x[:, np.newaxis])[:, 0]
 
     def diffusion(self, x):
         """
         Evaluate diffusion sigma at position x
         """
-        return np.eye(self.d) * (2.0 / self.beta) ** 0.5
+        return (2.0 / self.beta) ** 0.5 * np.eye(self.d)
 
     def stat_dist(self, x):
         """

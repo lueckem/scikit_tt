@@ -1583,7 +1583,7 @@ def eye(dims):
 
     Parameters
     ----------
-    dims: list of ints
+    dims: list of int
         list of row/column dimensions of the identity tensor train
 
     Returns

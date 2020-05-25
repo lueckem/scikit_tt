@@ -21,7 +21,7 @@ k = 4
 # Integration time step:
 dt = 1e-3
 # Number of time steps:
-m = 3000
+m = 2
 # Initial position:
 x0 = np.ones(d)
 
@@ -33,7 +33,7 @@ data = LS.Simulate(x0, m, dt)  # data.shape = (k, m)
 # Monomials
 basis_list = []
 for i in range(d):
-    basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(1, 5)])
+    basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(2, 6)])
 
 eigvals, eigtensors = tgedmd.amuset_hosvd(data, basis_list, LS.drift, LS.diffusion)
 print(eigvals)

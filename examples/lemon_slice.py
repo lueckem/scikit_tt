@@ -165,7 +165,8 @@ class LemonSlice:
         r, phi = self._polar_rep(x, y)
         return self.c * np.cos(self.k * phi) + 1.0 / np.cos(0.5 * phi) + 10 * (r - 1) ** 2 + (1.0 / r)
 
-    def _polar_rep(self, x, y):
+    @staticmethod
+    def _polar_rep(x, y):
         """
             Compute polar coordinates from 2d Euclidean coordinates:
 

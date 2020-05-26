@@ -21,7 +21,7 @@ k = 4
 # Integration time step:
 dt = 1e-3
 # Number of time steps:
-m = 2
+m = 3000  # max = 3000
 # Initial position:
 x0 = np.ones(d)
 
@@ -36,8 +36,23 @@ for i in range(d):
     basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(2, 6)])
 
 eigvals, eigtensors = tgedmd.amuset_hosvd(data, basis_list, LS.drift, LS.diffusion)
+eigvals = eigvals.real
 print(eigvals)
+print(eigtensors[0])
+
+# calculate implied timescales
+num_timescales = 4
+eigvals_sorted = np.sort(eigvals)
+time_scales = [np.exp(kappa * dt) for kappa in eigvals_sorted[:num_timescales]]
+time_scales.reverse()
+print(time_scales)
+
+# calculate and plot eigenfunctions
+num_eigenfuns = 4
+ind = np.argpartition(-eigvals, -num_eigenfuns)[-num_eigenfuns:]
+ind = ind[np.argsort(eigvals[ind])]  # indices of num_eigenfuns leading eigvals
 
 
-# eigenvalues, eigentensors = tedmd.amuset_hosvd(data, range(0, m - 1), range(1, m), basis_list)
-# print(eigenvalues)
+
+
+

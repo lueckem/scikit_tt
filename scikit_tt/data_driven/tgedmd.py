@@ -25,7 +25,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     -------
     eigvals : np.ndarray
         eigenvalues of Koopman generator
-    eigtensors : list of TT
+    eigtensors : list[TT]
         eigentensors of Koopman generator
     """
 
@@ -35,7 +35,6 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     print('calculating dpsi...')
     dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
     p = dpsi.order - 1
-    print(np.max(dpsi.full()))
 
     # SVD of psi
     print('calculating svd of psi...')
@@ -45,10 +44,9 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     s_inv = np.diag(s_inv)
 
     # SVD of dpsi (for rank reduction)
-    # dpsi = dpsi.ortho_left(threshold=threshold)
+    dpsi = dpsi.ortho_left(threshold=threshold)
 
     # calculate M
-    print(dpsi.norm())
     print('calculating matrix M for AMUSE...')
     M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
 
@@ -66,8 +64,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     eigtensors = []
     for i in range(eigvals.shape[0]):
         eigtensor = u.copy()
-        eigtensor.cores[-1] = np.tensordot(eigtensor.cores[-1], eigvecs[:, i, :], axes=([3], [0]))
-        eigtensor.ranks = [eigtensor.cores[i].shape[0] for i in range(eigtensor.order)] + [eigtensor.cores[-1].shape[3]]
+        eigtensor.rank_tensordot(eigvecs[:, i, :], overwrite=True)
         eigtensors.append(eigtensor)
 
     return eigvals, eigtensors
@@ -90,7 +87,7 @@ def tt_decomposition(x, basis_list, b, sigma):
 
     Returns
     -------
-    dPsiX : TT
+    TT
         tensor train of basis function evaluations
     """
 
@@ -120,14 +117,13 @@ def tt_decomposition(x, basis_list, b, sigma):
 
     # insert elements of core p
     for k in range(m):
-        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
-                                                                        position='last')
+        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k + 1] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
+                                                                            position='last')
 
     # append core containing unit vectors
     cores.append(np.eye(m).reshape(m, m, 1, 1))
 
-    dPsiX = TT(cores)
-    return dPsiX
+    return TT(cores)
 
 
 def dPsix(psi_k, x, b, sigma, position='middle'):

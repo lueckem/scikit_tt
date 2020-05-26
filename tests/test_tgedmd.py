@@ -117,7 +117,6 @@ class TestCores(TestCase):
                     for s3 in range(self.n[3]):
                         t_ref[s0, s1, s2, s3] = tgedmd.generator_on_product(self.basis_list, (s0, s1, s2, s3), self.x,
                                                                             self.ls.drift, self.ls.diffusion)
-
         self.assertTrue((np.abs(tensor - t_ref) < self.tol).all())
 
 
@@ -154,7 +153,6 @@ class TestTTDecomposition(TestCase):
                                                                                    self.x[:, k],
                                                                                    self.ls.drift, self.ls.diffusion)
 
-        print(np.abs(dPsiX - t_ref)[:, :, 0, 0, 0])
         self.assertTrue((np.abs(dPsiX - t_ref) < self.tol).all())
 
 

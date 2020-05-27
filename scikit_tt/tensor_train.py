@@ -658,6 +658,53 @@ class TT(object):
 
         tdot.ranks = [tdot.cores[i].shape[0] for i in range(tdot.order)] + [tdot.cores[-1].shape[3]]
         return tdot
+    
+    def concatenate(self, other, overwrite=False):
+        """
+        Expand the list of cores of self by appending more cores.
+        
+        If other is a TT, concatenate the cores of self and the cores of other.
+        If other is a list of cores, the cores are appended to self.cores.
+        For example, this method can be used to reconstruct the original tensor from u,s,v from TT.svd.
+        
+        Parameters
+        ----------
+        other : TT or list[np.ndarray]
+        overwrite : bool, optional
+
+        Returns
+        -------
+        TT
+        """
+
+        # copy self
+        if overwrite is False:
+            tt = self.copy()
+        else:
+            tt = self
+        
+        if isinstance(other, TT):
+            if tt.ranks[-1] != other.ranks[0]:
+                raise ValueError('ranks do not match!')
+            tt.cores.extend(other.cores)
+            
+        elif isinstance(other, list):
+            # check if orders of list elements are correct
+            if not np.all([other[i].ndim == 4 for i in range(len(other))]):
+                raise ValueError('list elements must be 4-dimensional arrays')
+            # check if ranks are correct
+            if not np.all([other[i].shape[3] == other[i + 1].shape[0] for i in range(len(other) - 1)]):
+                raise ValueError('List elements must be 4-dimensional arrays.')
+            if tt.ranks[-1] != other[0].shape[0]:
+                raise ValueError('ranks do not match!')
+            tt.cores.extend(other)
+
+        tt.order = len(tt.cores)
+        tt.row_dims = [tt.cores[i].shape[1] for i in range(tt.order)]
+        tt.col_dims = [tt.cores[i].shape[2] for i in range(tt.order)]
+        tt.ranks = [tt.cores[i].shape[0] for i in range(tt.order)] + [tt.cores[-1].shape[3]]
+
+        return tt
 
     def transpose(self, cores=None, conjugate=False, overwrite=False):
         """Transpose of tensor trains

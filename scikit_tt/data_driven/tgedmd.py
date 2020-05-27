@@ -3,7 +3,7 @@ from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function
 
 
-def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
+def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, return_option='eigentensors'):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
     The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
@@ -20,28 +20,33 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
         diffusion, sigma: R^d -> R^(d,d)
     threshold : float
         threshold for svd of psi
+    return_option : {'eigentensors', 'eigenfunctionevals'}
+        'eigentensors': return a list of the eigentensors of the koopman generator
+        'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
 
     Returns
     -------
     eigvals : np.ndarray
         eigenvalues of Koopman generator
-    eigtensors : list[TT]
-        eigentensors of Koopman generator
+    eigtensors : list[TT] or np.ndarray
+        eigentensors of Koopman generator or evaluations of eigenfunctions at snapshots (shape (*, m))
+        (cf. return_option)
     """
 
-    # calculate psi and dpsi
+    # calculate psi
     print('calculating psi...')
     psi = basis_decomposition(data_matrix, basis_list)
-    print('calculating dpsi...')
-    dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
-    p = dpsi.order - 1
-
     # SVD of psi
-    print('calculating svd of psi...')
     u, s, v = psi.svd(psi.order - 1, threshold=threshold)
     s_inv = 1.0 / s
     s = np.diag(s)
     s_inv = np.diag(s_inv)
+    psi = u.rank_tensordot(s)
+    psi.concatenate(v, overwrite=True)  # rank reduced version
+
+    print('calculating dpsi...')
+    dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
+    p = dpsi.order - 1
 
     # SVD of dpsi (for rank reduction)
     dpsi = dpsi.ortho_left(threshold=threshold)
@@ -60,14 +65,20 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2):
     eigvals, eigvecs = np.linalg.eig(M)
 
     # calculate eigentensors
-    eigvecs = eigvecs[:, :, np.newaxis]
-    eigtensors = []
-    for i in range(eigvals.shape[0]):
-        eigtensor = u.copy()
-        eigtensor.rank_tensordot(eigvecs[:, i, :], overwrite=True)
-        eigtensors.append(eigtensor)
+    if return_option == 'eigentensors':
+        eigvecs = eigvecs[:, :, np.newaxis]
+        eigtensors = []
+        for i in range(eigvals.shape[0]):
+            eigtensor = u.copy()
+            eigtensor.rank_tensordot(eigvecs[:, i, :], overwrite=True)
+            eigtensors.append(eigtensor)
 
-    return eigvals, eigtensors
+        return eigvals, eigtensors
+    else:
+        u.rank_tensordot(eigvecs, overwrite=True)
+        u.tensordot(psi, p, mode='first-first', overwrite=True)
+        u = u.cores[0][0, :, 0, :].T
+        return eigvals, u
 
 
 def tt_decomposition(x, basis_list, b, sigma):

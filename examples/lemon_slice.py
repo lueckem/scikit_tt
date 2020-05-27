@@ -1,5 +1,4 @@
 import numpy as np
-
 from scipy.integrate import quad, nquad
 
 """ Implements 2d-Lemon Slice potential as model system: """

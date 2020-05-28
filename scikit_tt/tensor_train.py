@@ -1433,7 +1433,7 @@ class TT(object):
 
         return tt_tensor
 
-    def svd(self, index, threshold=0, ortho_l=True, ortho_r=True, overwrite=False):
+    def svd(self, index, threshold=0, max_rank=np.infty, ortho_l=True, ortho_r=True, overwrite=False):
         """Computation of a global SVD of a tensor train.
 
         Construct a singular value decomposition of a (non-operator) tensor train t in the form of tensor networks u, s,
@@ -1446,6 +1446,8 @@ class TT(object):
             unfolded version of self
         threshold: float, optional
             threshold for reduced SVD decompositions, default is 0
+        max_rank : int, optional
+            maximal rank of reduced svd
         ortho_l: bool, optional
             whether to apply left-orthonormalization or not, default is True
         ortho_r: bool, optional
@@ -1478,11 +1480,11 @@ class TT(object):
 
         # left-orthonormalize cores 0 to index-2
         if ortho_l is True:
-            t = t.ortho_left(end_index=index - 2, threshold=threshold)
+            t = t.ortho_left(end_index=index - 2, threshold=threshold, max_rank=max_rank)
 
         # right-orthonormalize cores index to order -1
         if ortho_r is True:
-            t = t.ortho_right(end_index=index, threshold=threshold)
+            t = t.ortho_right(end_index=index, threshold=threshold, max_rank=max_rank)
 
         # decompose (index-1)th core
         [u, s, v] = linalg.svd(t.cores[index - 1].reshape(t.ranks[index - 1] * t.row_dims[index - 1], t.ranks[index]),
@@ -1494,6 +1496,10 @@ class TT(object):
             u = u[:, indices]
             s = s[indices]
             v = v[indices, :]
+        if max_rank != np.infty:
+            u = u[:, :np.minimum(u.shape[1], max_rank)]
+            s = s[:np.minimum(s.shape[0], max_rank)]
+            v = v[:np.minimum(v.shape[0], max_rank), :]
 
         # set new rank
         t.ranks[index] = u.shape[1]

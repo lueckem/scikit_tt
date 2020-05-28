@@ -3,7 +3,7 @@ from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function
 
 
-def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, return_option='eigentensors'):
+def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, return_option='eigentensors'):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
     The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
@@ -20,6 +20,8 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, return_optio
         diffusion, sigma: R^d -> R^(d,d)
     threshold : float
         threshold for svd of psi
+    max_rank : int
+        maximal rank of TT representations of psi and dpsi after svd/ortho
     return_option : {'eigentensors', 'eigenfunctionevals'}
         'eigentensors': return a list of the eigentensors of the koopman generator
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
@@ -37,7 +39,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, return_optio
     print('calculating psi...')
     psi = basis_decomposition(data_matrix, basis_list)
     # SVD of psi
-    u, s, v = psi.svd(psi.order - 1, threshold=threshold)
+    u, s, v = psi.svd(psi.order - 1, threshold=threshold, max_rank=max_rank)
     s_inv = 1.0 / s
     s = np.diag(s)
     s_inv = np.diag(s_inv)
@@ -49,7 +51,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, return_optio
     p = dpsi.order - 1
 
     # SVD of dpsi (for rank reduction)
-    dpsi = dpsi.ortho_left(threshold=threshold)
+    dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
 
     # calculate M
     print('calculating matrix M for AMUSE...')

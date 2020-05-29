@@ -3,7 +3,8 @@ from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function
 
 
-def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, return_option='eigentensors'):
+def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, return_option='eigentensors',
+                 chunk_size=None):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
     The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
@@ -25,6 +26,8 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
     return_option : {'eigentensors', 'eigenfunctionevals'}
         'eigentensors': return a list of the eigentensors of the koopman generator
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
+     chunk_size : int or None, optional
+        if a chunk_size is specified, dPsi(X) is built in chunks
 
     Returns
     -------
@@ -35,7 +38,6 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
         (cf. return_option)
     """
 
-    # calculate psi
     print('calculating psi...')
     psi = basis_decomposition(data_matrix, basis_list)
     # SVD of psi
@@ -47,11 +49,12 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
     psi.concatenate(v, overwrite=True)  # rank reduced version
 
     print('calculating dpsi...')
-    dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
+    if chunk_size is None:
+        dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
+        dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
+    else:
+        dpsi = tt_decomposition_chunks(data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
     p = dpsi.order - 1
-
-    # SVD of dpsi (for rank reduction)
-    dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
 
     # calculate M
     print('calculating matrix M for AMUSE...')

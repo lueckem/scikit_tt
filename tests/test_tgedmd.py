@@ -155,6 +155,16 @@ class TestTTDecomposition(TestCase):
 
         self.assertTrue((np.abs(dPsiX - t_ref) < self.tol).all())
 
+    def test_tt_decomposition_chunks(self):
+        dPsiX = tgedmd.tt_decomposition(self.x, self.basis_list, self.ls.drift, self.ls.diffusion)
+        dPsiX_chunks = tgedmd.tt_decomposition_chunks(self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
+                                                      threshold=0, chunk_size=2)
+
+        dPsiX = np.squeeze(dPsiX.full())
+        dPsiX_chunks = np.squeeze(dPsiX_chunks.full())
+
+        self.assertTrue((np.abs(dPsiX - dPsiX_chunks) < self.tol).all())
+
 
 if __name__ == '__main__':
     ut.main()

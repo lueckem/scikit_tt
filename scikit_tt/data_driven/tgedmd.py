@@ -39,7 +39,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
     print('calculating psi...')
     psi = basis_decomposition(data_matrix, basis_list)
     # SVD of psi
-    u, s, v = psi.svd(psi.order - 1, threshold=threshold, max_rank=max_rank)
+    u, s, v = psi.svd(psi.order - 1, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
     s_inv = 1.0 / s
     s = np.diag(s)
     s_inv = np.diag(s_inv)
@@ -81,6 +81,94 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
         u.tensordot(psi, p, mode='first-first', overwrite=True)
         u = u.cores[0][0, :, 0, :].T
         return eigvals, u
+
+
+def tt_decomposition_chunks(x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
+    """
+    Calculate dPsi(X) in chunks.
+
+    The data is divided in chunks. dPsi(X) is calculated for the first and second chunk and the two tensors
+    added and rank-compressed. Then dPsi(X) is calculated for the third chunk, added and the resulting tensor is
+    again rank compressed. And so on...
+
+    Parameters
+    ----------
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : (list of (list of Function))
+        list of basis functions in every mode
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float, optional
+        threshold for compression
+    max_rank : int, optional
+        maximal rank after compression
+    chunk_size : int, optional
+        how much data is used in one chunk
+
+    Returns
+    -------
+    TT
+        tensor train of basis function evaluations
+    """
+
+    m = x.shape[1]
+    start_chunk = 0
+    end_chunk = min(m, start_chunk + chunk_size)
+
+    dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
+    dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+
+    while end_chunk < m:
+        start_chunk = end_chunk
+        end_chunk = min(m, start_chunk + chunk_size)
+        new = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
+        dPsi += new
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+
+    return dPsi
+
+
+def _tt_decomposition_one_chunk(x, basis_list, b, sigma, start_chunk, m_total):
+    # number of snapshots
+    m = x.shape[1]
+    # dimension
+    d = x.shape[0]
+    # number of modes
+    p = len(basis_list)
+    # mode dimensions
+    n = [len(basis_list[i]) for i in range(p)]
+
+    # define cores 1,...,p as a list of empty arrays
+    cores = [np.zeros([1, n[0], 1, m * (d + 2)])] + \
+            [np.zeros([m * (d + 2), n[i], 1, m * (d + 2)]) for i in range(1, p - 1)] + \
+            [np.zeros([m * (d + 2), n[p - 1], 1, m])]
+
+    # insert elements of core 1
+    cores[0] = np.concatenate([dPsix(basis_list[0], x[:, k], b, sigma, position='first') for k in range(m)],
+                              axis=3)
+
+    # insert elements of cores 2,...,p-1
+    for i in range(1, p - 1):
+        for k in range(m):
+            cores[i][k * (d + 2): (k + 1) * (d + 2), :, :, k * (d + 2): (k + 1) * (d + 2)] = dPsix(
+                basis_list[i], x[:, k], b, sigma, position='middle')
+
+    # insert elements of core p
+    for k in range(m):
+        cores[p - 1][k * (d + 2): (k + 1) * (d + 2), :, :, k:k + 1] = dPsix(basis_list[p - 1], x[:, k], b, sigma,
+                                                                            position='last')
+
+    # append core containing unit vectors
+    last_core = np.zeros((m, m_total, 1, 1))
+    for k in range(m):
+        last_core[k, start_chunk + k, 0, 0] = 1
+
+    cores.append(last_core)
+
+    return TT(cores)
 
 
 def tt_decomposition(x, basis_list, b, sigma):

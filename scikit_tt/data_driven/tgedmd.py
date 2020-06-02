@@ -5,7 +5,7 @@ from scikit_tt.data_driven.transform import __hocur_find_li_cols, __hocur_maxvol
 import scikit_tt.utils as utl
 
 
-def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, return_option='eigentensors',
+def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty, return_option='eigentensors',
                  chunk_size=None):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
@@ -21,9 +21,12 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
         drift, b:R^d -> R^d
     sigma : function
         diffusion, sigma: R^d -> R^(d,d)
-    threshold : float
+    num_eigvals : int, optional
+        number of eigenvalues and eigentensors that are returned
+        default: return all calculated eigenvalues and eigentensors
+    threshold : float, optional
         threshold for svd of psi
-    max_rank : int
+    max_rank : int, optional
         maximal rank of TT representations of psi and dpsi after svd/ortho
     return_option : {'eigentensors', 'eigenfunctionevals'}
         'eigentensors': return a list of the eigentensors of the koopman generator
@@ -64,12 +67,22 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, threshold=1e-2, max_rank=np.
 
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
     M.tensordot(u, p, mode='first-first', overwrite=True)
-    # M.rank_transpose(overwrite=True) ?
+    # M.rank_transpose(overwrite=True)
     M = M.cores[0][:, 0, 0, :]
 
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
     eigvals, eigvecs = np.linalg.eig(M)
+    if not (eigvals < 0).all():
+        print('WARNING: there were eigenvalues >= 0, which have been removed')
+        eigvals = eigvals[eigvals < 0]
+
+    sorted_indices = np.argsort(-eigvals)
+    eigvals = eigvals[sorted_indices]
+    eigvecs = eigvecs[:, sorted_indices]
+    if len(eigvals > num_eigvals):
+        eigvals = eigvals[:num_eigvals]
+        eigvecs = eigvecs[:, :num_eigvals]
 
     # calculate eigentensors
     if return_option == 'eigentensors':

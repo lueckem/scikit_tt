@@ -941,19 +941,22 @@ def __hocur_first_col_inds(dimensions, ranks, multiplier):
 
     Parameters
     ----------
-    dimensions: list[int]
+    dimensions : list[int]
         dimensions of a given tensor
-    ranks: list[int]
-        ranks for decomposition
+    ranks : list[int]
+        ranks for decomposition, has to be smaller than the last dimension
     multiplier : int
         multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
         finding a 'full' set of linearly independent columns
 
     Returns
     -------
-    col_inds: list[list[int]]
+    col_inds : list[list[int]]
         array containing single indices
     """
+
+    if max(ranks) > dimensions[-1]:
+        raise ValueError('ranks need to be smaller than last dimension')
 
     # define list of column indices
     col_inds = [None]
@@ -1118,7 +1121,7 @@ def __hocur_find_li_cols(matrix, tol=1e-14):
 
     Returns
     -------
-    cols: list[int]
+    cols : list[int]
         indices of linearly independent columns
     """
 
@@ -1155,7 +1158,7 @@ def __hocur_maxvolume(matrix, maximum_iterations=1000, tolerance=1e-5):
 
     Returns
     -------
-    rows: list[int]
+    rows : list[int]
         rows of the matrix which build the dominant submatrix
 
     References

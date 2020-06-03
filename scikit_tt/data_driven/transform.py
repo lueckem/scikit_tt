@@ -450,7 +450,7 @@ def basis_decomposition(x, phi, single_core=None):
 
     Parameters
     ----------
-    x: np.ndarray
+    x : np.ndarray
         snapshot matrix of size d x m
     phi: list[list[function]]
         list of basis functions in every mode
@@ -734,16 +734,16 @@ def gram(x_1, x_2, basis_list):
 
     Parameters
     ----------
-    x_1: np.ndarray
+    x_1 : np.ndarray
         data matrix for psi_1
-    x_2: np.ndarray
+    x_2 : np.ndarray
         data matrix for psi_2
     basis_list: list[list[function]]
         list of basis functions in every mode
 
     Returns
     -------
-    gram: np.ndarray
+    gram : np.ndarray
         Gram matrix
 
     References
@@ -771,7 +771,7 @@ def hocur(x, basis_list, ranks, repeats=1, multiplier=10, progress=True, string=
 
     Parameters
     ----------
-    x: np.ndarray
+    x : np.ndarray
         data matrix
     basis_list: list[list[function]]
         list of basis functions in every mode
@@ -997,7 +997,7 @@ def __hocur_extract_matrix(data, basis_list, row_coordinates_list, col_coordinat
 
     Returns
     -------
-    matrix: np.ndarray
+    np.ndarray
         extracted matrix
     """
 

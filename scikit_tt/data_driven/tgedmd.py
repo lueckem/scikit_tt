@@ -15,7 +15,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     ----------
     data_matrix : np.ndarray
         snapshot matrix, shape (d, m)
-    basis_list : (list of (list of Function))
+    basis_list : list[list[Function]]
         list of basis functions in every mode
     b : function
         drift, b:R^d -> R^d
@@ -113,7 +113,7 @@ def tt_decomposition_chunks(x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     ----------
     x : np.ndarray
         snapshot matrix of size d x m
-    basis_list : (list of (list of Function))
+    basis_list : list[list[Function]]
         list of basis functions in every mode
     b : function
         drift, b:R^d -> R^d
@@ -197,7 +197,7 @@ def tt_decomposition(x, basis_list, b, sigma):
     ----------
     x : np.ndarray
         snapshot matrix of size d x m
-    basis_list : (list of (list of Function))
+    basis_list : list[list[Function]]
         list of basis functions in every mode
     b : function
         drift, b:R^d -> R^d
@@ -251,7 +251,7 @@ def dPsix(psi_k, x, b, sigma, position='middle'):
 
     Parameters
     ----------
-    psi_k : (list of Function)
+    psi_k : list[Function]
         [psi_{k,1}, ... , psi_{k, n_k}]
     x : np.ndarray
         shape (d,)
@@ -320,7 +320,7 @@ def generator_on_product(basis_list, s, x, b, sigma):
 
     Parameters
     ----------
-    basis_list : (list of (list of Function))
+    basis_list : list[list[Function]]
     s : tuple
         indices of basis functions
     x : np.ndarray

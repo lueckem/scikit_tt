@@ -73,13 +73,14 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
     eigvals, eigvecs = np.linalg.eig(M)
-    if not (eigvals < 0).all():
-        print('WARNING: there were eigenvalues >= 0, which have been removed')
-        eigvals = eigvals[eigvals < 0]
 
     sorted_indices = np.argsort(-eigvals)
     eigvals = eigvals[sorted_indices]
     eigvecs = eigvecs[:, sorted_indices]
+
+    if not (eigvals < 0).all():
+        print('WARNING: there are eigenvalues >= 0')
+
     if len(eigvals > num_eigvals):
         eigvals = eigvals[:num_eigvals]
         eigvecs = eigvecs[:, :num_eigvals]

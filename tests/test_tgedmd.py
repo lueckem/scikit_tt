@@ -4,7 +4,7 @@ import numpy as np
 import scikit_tt.data_driven.tgedmd as tgedmd
 import scikit_tt.data_driven.transform as tdt
 from examples.lemon_slice import LemonSlice
-from scikit_tt import TT
+from scikit_tt.tensor_train import TT
 
 
 class TestHelperFunctions(TestCase):
@@ -164,36 +164,6 @@ class TestTTDecomposition(TestCase):
         dPsiX_chunks = np.squeeze(dPsiX_chunks.full())
 
         self.assertTrue((np.abs(dPsiX - dPsiX_chunks) < self.tol).all())
-
-
-class TestHocur(TestCase):
-    def setUp(self):
-        self.tol = 1e-8
-        self.d = 4
-        self.p = self.d
-        self.m = 5
-
-        self.ls = LemonSlice(k=4, beta=1, c=1, d=self.d, alpha=10)
-
-        self.basis_list = []
-        for i in range(self.d):
-            self.basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(2, 6)])
-        self.n = [len(mode) for mode in self.basis_list]
-
-        self.x = np.random.random((self.d, self.m))
-        self.a = self.ls.diffusion(self.x) @ self.ls.diffusion(self.x).T
-
-    def test_hocur(self):
-        dPsiX = tgedmd.tt_decomposition(self.x, self.basis_list, self.ls.drift, self.ls.diffusion)
-        dPsiX_hocur = tgedmd.hocur(self.x, self.basis_list, self.ls.drift, self.ls.diffusion, ranks=5, repeats=2)
-        print(dPsiX)
-        print(dPsiX_hocur)
-
-        dPsiX = np.squeeze(dPsiX.full())
-        dPsiX_hocur = np.squeeze(dPsiX_hocur.full())
-
-        print(np.linalg.norm(dPsiX - dPsiX_hocur))
-        self.assertTrue((np.abs(dPsiX - dPsiX_hocur) < self.tol).all())
 
 
 if __name__ == '__main__':

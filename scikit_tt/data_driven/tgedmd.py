@@ -47,10 +47,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     psi = basis_decomposition(data_matrix, basis_list)
     # SVD of psi
     u, s, v = psi.svd(psi.order - 1, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
-    s_inv = 1.0 / s
-    s = np.diag(s)
-    s_inv = np.diag(s_inv)
-    psi = u.rank_tensordot(s)
+    psi = u.rank_tensordot(np.diag(s))
     psi.concatenate(v, overwrite=True)  # rank reduced version
 
     print('calculating dpsi...')
@@ -62,13 +59,8 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     p = dpsi.order - 1
 
     # calculate M
-    print('calculating matrix M for AMUSE...')
-    M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
-
-    u.rank_tensordot(s_inv, mode='last', overwrite=True)
-    M.tensordot(u, p, mode='first-first', overwrite=True)
-    # M.rank_transpose(overwrite=True)
-    M = M.cores[0][:, 0, 0, :]
+    print('calculating M in AMUSEt')
+    M = _amuset(u, s, v, dpsi)
 
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
@@ -358,282 +350,282 @@ def generator_on_product(basis_list, s, x, b, sigma):
     return out
 
 
-def amuset_hocur(data_matrix, basis_list, b, sigma, max_rank=1000, multiplier=2):
-    """
-
-    Parameters
-    ----------
-    data_matrix
-    basis_list
-    b
-    sigma
-    max_rank
-    multiplier
-
-    Returns
-    -------
-
-    """
-
-    pass
-
-
-def hocur(x, basis_list, b, sigma, ranks, repeats=1, multiplier=10):
-    """
-    Higher-order CUR decomposition of dPsi(X).
-
-    Given a snapshot matrix x and a list of basis functions in each mode, construct a TT decomposition dPsi(X)
-    using a higher-order CUR decomposition and maximum-volume subtensors.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        data matrix
-    basis_list : list[list[Function]]
-        list of basis functions in every mode
-    b : function
-        drift, b:R^d -> R^d
-    sigma : function
-        diffusion, sigma: R^d -> R^(d,d)
-    ranks : list[int] or int
-        maximum TT ranks of the resulting TT representation; if type is int, then the ranks are set to
-        [1, ranks, ..., ranks, 1]; note that - depending on the number of linearly independent rows/columns that have
-        been found - the TT ranks may be reduced during the decomposition
-    repeats : int, optional
-        number of repeats, default is 1
-    multiplier : int, optional
-        multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
-        finding a 'full' set of linearly independent columns; default is 10
-
-    Returns
-    -------
-    TT
-        TT representation of dPsi(X)
-    """
-
-    m = x.shape[1]
-
-    # number of modes
-    p = len(basis_list)
-
-    # mode dimensions
-    n = [len(basis_list[k]) for k in range(p)] + [m]
-
-    # ranks
-    if not isinstance(ranks, list):
-        ranks = [1] + [ranks for _ in range(len(n) - 1)] + [1]
-
-    # initial definitions
-    # -------------------
-
-    # define initial lists of column indices
-    col_inds = __hocur_first_col_inds(n, ranks, multiplier)
-
-    # define list of cores
-    cores = [None] * (p + 1)
-
-    # start decomposition
-    # -------------------
-
-    for k in range(repeats):
-
-        row_inds = [None]
-
-        # first half sweep
-        for i in range(p):
-
-            # extract submatrix
-            y = __hocur_extract_matrix(x, basis_list, b, sigma, row_inds[i], col_inds[i])
-
-            if k == 0:
-                # find linearly independent columns
-                cols = __hocur_find_li_cols(y)
-                cols = cols[:ranks[i + 1]]
-                y = y[:, cols]
-
-            # find optimal rows
-            rows = __hocur_maxvolume(y)
-
-            # adapt ranks if necessary
-            ranks[i + 1] = len(rows)
-
-            if i == 0:
-
-                # store row indices for first dimensions
-                row_inds.append([[rows[j]] for j in range(ranks[i + 1])])
-
-            else:
-
-                # convert rows to multi indices
-                multi_indices = np.array(np.unravel_index(rows, (ranks[i], n[i])))
-
-                # store row indices for dimensions m_1, n_1, ..., m_i, n_i
-                row_inds.append([row_inds[i][multi_indices[0, j]] + [multi_indices[1, j]] for j in
-                                 range(ranks[i + 1])])
-
-            # define core
-            if len(rows) < y.shape[1]:
-                y = y[:, :len(rows)]
-            u_inv = np.linalg.inv(y[rows, :].copy())
-            cores[i] = y.dot(u_inv).reshape([ranks[i], n[i], 1, ranks[i + 1]])
-
-        # second half sweep
-        for i in range(p, 0, -1):
-
-            # extract submatrix
-            y = __hocur_extract_matrix(x, basis_list, b, sigma, row_inds[i], col_inds[i]).reshape([ranks[i], n[i] * ranks[i + 1]])
-
-            # find optimal rows
-            cols = __hocur_maxvolume(y.T)
-
-            # adapt ranks if necessary
-            ranks[i] = len(cols)
-
-            if i == p:
-
-                # store row indices for first dimensions
-                col_inds[p - 1] = [[cols[j]] for j in range(ranks[i])]
-
-            else:
-
-                # convert cols to multi indices
-                multi_indices = np.array(np.unravel_index(cols, (n[i], ranks[i + 1])))
-
-                # store col indices for dimensions m_i, n_i, ... , m_d, n_d
-                col_inds[i - 1] = [[multi_indices[0, j]] + col_inds[i][multi_indices[1, j]] for j in range(ranks[i])]
-
-            # define TT core
-            if len(cols) < y.shape[0]:
-                y = y[:len(cols), :]
-            u_inv = np.linalg.inv(y[:, cols].copy())
-            cores[i] = u_inv.dot(y).reshape([ranks[i], n[i], 1, ranks[i + 1]])
-
-        # define first core
-        y = __hocur_extract_matrix(x, basis_list, b, sigma, None, col_inds[0])
-        cores[0] = y.reshape([1, n[0], 1, ranks[1]])
-
-    # construct tensor train
-    # ----------------------
-
-    psi = TT(cores)
-
-    return psi
-
-
-def __hocur_first_col_inds(dimensions, ranks, multiplier):
-    # todo: max rank needs to be m(d+2) instead of m
-    """
-    Create random column indices.
-
-    Parameters
-    ----------
-    dimensions : list[int]
-        dimensions of a given tensor
-    ranks : list[int]
-        ranks for decomposition, has to be smaller than the last dimension
-    multiplier : int
-        multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
-        finding a 'full' set of linearly independent columns
-
-    Returns
-    -------
-    col_inds : list[list[int]]
-        array containing single indices
-    """
-
-    if max(ranks) > dimensions[-1]:
-        raise ValueError('ranks need to be smaller than last dimension')
-
-    # define list of column indices
-    col_inds = [None]
-
-    # insert column indices for last dimension
-    col_inds.insert(0, [[j] for j in range(np.minimum(multiplier * ranks[-2], dimensions[-1]))])
-
-    for i in range(len(dimensions) - 3, -1, -1):
-        # define array of flat indices
-        flat_inds = np.arange(np.minimum(multiplier * ranks[i + 1], dimensions[i + 1] * ranks[i + 2]))
-
-        # convert flat indices to tuples
-        multi_inds = np.array(np.unravel_index(flat_inds, (dimensions[i + 1], ranks[i + 2])))
-
-        # insert column indices
-        col_inds.insert(0, [[multi_inds[0, j]] + col_inds[0][multi_inds[1, j]] for j in range(multi_inds.shape[1])])
-
-    return col_inds
-
-
-def __hocur_extract_matrix(data, basis_list, b, sigma, row_coordinates_list, col_coordinates_list):
-    """
-    Extraction of a submatrix of dPsi(X).
-
-    Given a set of row and column coordinates, extracts a submatrix from dPsi(X) corresponding to
-    the data matrix x and the set of basis functions stored in basis_list.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        data matrix
-    basis_list : list[list[Function]]
-        list of basis functions in every mode
-    b : function
-        drift, b:R^d -> R^d
-    sigma : function
-        diffusion, sigma: R^d -> R^(d,d)
-    row_coordinates_list : list[list[int]]
-        list of row indices
-    col_coordinates_list : list[list[int]]
-        list of column indices
-
-    Returns
-    -------
-    np.ndarray
-        extracted matrix
-    """
-
-    if row_coordinates_list is None:
-        current_mode = len(basis_list[0])
-        n_rows = 1
-        n_cols = len(col_coordinates_list)
-
-        matrix = np.zeros([current_mode, n_cols])
-        for j in range(n_cols):
-            col_coordinates = col_coordinates_list[j]
-            snapshot = data[:, col_coordinates[-1]]
-            for l in range(current_mode):
-                s = [l] + col_coordinates[:-1]
-                matrix[l, j] = generator_on_product(basis_list, s, snapshot, b, sigma)
-
-    elif col_coordinates_list is None:
-        current_mode = data.shape[1]
-        n_rows = len(row_coordinates_list)
-        n_cols = 1
-
-        matrix = np.zeros([n_rows * current_mode, 1])
-        for i in range(n_rows):
-            row_coordinates = row_coordinates_list[i]
-            for l in range(current_mode):
-                s = row_coordinates
-                snapshot = data[:, l]
-                matrix[i * current_mode + l, 0] = generator_on_product(basis_list, s, snapshot, b, sigma)
-
-    else:
-        n_rows = len(row_coordinates_list)
-        n_cols = len(col_coordinates_list)
-        current_index = len(row_coordinates_list[0])
-        current_mode = len(basis_list[current_index])
-
-        matrix = np.zeros([n_rows * current_mode, n_cols])
-        for j in range(n_cols):
-            for i in range(n_rows):
-                col_coordinates = col_coordinates_list[j]
-                row_coordinates = row_coordinates_list[i]
-                snapshot = data[:, col_coordinates[-1]]
-                for l in range(current_mode):
-                    s = row_coordinates + [l] + col_coordinates[:-1]
-                    matrix[i * current_mode + l, j] = generator_on_product(basis_list, s, snapshot, b, sigma)
-
-    return matrix
+# def amuset_hocur(data_matrix, basis_list, b, sigma, max_rank=1000, multiplier=2):
+#     """
+#
+#     Parameters
+#     ----------
+#     data_matrix
+#     basis_list
+#     b
+#     sigma
+#     max_rank
+#     multiplier
+#
+#     Returns
+#     -------
+#
+#     """
+#
+#     pass
+#
+#
+# def hocur(x, basis_list, b, sigma, ranks, repeats=1, multiplier=10):
+#     """
+#     Higher-order CUR decomposition of dPsi(X).
+#
+#     Given a snapshot matrix x and a list of basis functions in each mode, construct a TT decomposition dPsi(X)
+#     using a higher-order CUR decomposition and maximum-volume subtensors.
+#
+#     Parameters
+#     ----------
+#     x : np.ndarray
+#         data matrix
+#     basis_list : list[list[Function]]
+#         list of basis functions in every mode
+#     b : function
+#         drift, b:R^d -> R^d
+#     sigma : function
+#         diffusion, sigma: R^d -> R^(d,d)
+#     ranks : list[int] or int
+#         maximum TT ranks of the resulting TT representation; if type is int, then the ranks are set to
+#         [1, ranks, ..., ranks, 1]; note that - depending on the number of linearly independent rows/columns that have
+#         been found - the TT ranks may be reduced during the decomposition
+#     repeats : int, optional
+#         number of repeats, default is 1
+#     multiplier : int, optional
+#         multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
+#         finding a 'full' set of linearly independent columns; default is 10
+#
+#     Returns
+#     -------
+#     TT
+#         TT representation of dPsi(X)
+#     """
+#
+#     m = x.shape[1]
+#
+#     # number of modes
+#     p = len(basis_list)
+#
+#     # mode dimensions
+#     n = [len(basis_list[k]) for k in range(p)] + [m]
+#
+#     # ranks
+#     if not isinstance(ranks, list):
+#         ranks = [1] + [ranks for _ in range(len(n) - 1)] + [1]
+#
+#     # initial definitions
+#     # -------------------
+#
+#     # define initial lists of column indices
+#     col_inds = __hocur_first_col_inds(n, ranks, multiplier)
+#
+#     # define list of cores
+#     cores = [None] * (p + 1)
+#
+#     # start decomposition
+#     # -------------------
+#
+#     for k in range(repeats):
+#
+#         row_inds = [None]
+#
+#         # first half sweep
+#         for i in range(p):
+#
+#             # extract submatrix
+#             y = __hocur_extract_matrix(x, basis_list, b, sigma, row_inds[i], col_inds[i])
+#
+#             if k == 0:
+#                 # find linearly independent columns
+#                 cols = __hocur_find_li_cols(y)
+#                 cols = cols[:ranks[i + 1]]
+#                 y = y[:, cols]
+#
+#             # find optimal rows
+#             rows = __hocur_maxvolume(y)
+#
+#             # adapt ranks if necessary
+#             ranks[i + 1] = len(rows)
+#
+#             if i == 0:
+#
+#                 # store row indices for first dimensions
+#                 row_inds.append([[rows[j]] for j in range(ranks[i + 1])])
+#
+#             else:
+#
+#                 # convert rows to multi indices
+#                 multi_indices = np.array(np.unravel_index(rows, (ranks[i], n[i])))
+#
+#                 # store row indices for dimensions m_1, n_1, ..., m_i, n_i
+#                 row_inds.append([row_inds[i][multi_indices[0, j]] + [multi_indices[1, j]] for j in
+#                                  range(ranks[i + 1])])
+#
+#             # define core
+#             if len(rows) < y.shape[1]:
+#                 y = y[:, :len(rows)]
+#             u_inv = np.linalg.inv(y[rows, :].copy())
+#             cores[i] = y.dot(u_inv).reshape([ranks[i], n[i], 1, ranks[i + 1]])
+#
+#         # second half sweep
+#         for i in range(p, 0, -1):
+#
+#             # extract submatrix
+#             y = __hocur_extract_matrix(x, basis_list, b, sigma, row_inds[i], col_inds[i]).reshape([ranks[i], n[i] * ranks[i + 1]])
+#
+#             # find optimal rows
+#             cols = __hocur_maxvolume(y.T)
+#
+#             # adapt ranks if necessary
+#             ranks[i] = len(cols)
+#
+#             if i == p:
+#
+#                 # store row indices for first dimensions
+#                 col_inds[p - 1] = [[cols[j]] for j in range(ranks[i])]
+#
+#             else:
+#
+#                 # convert cols to multi indices
+#                 multi_indices = np.array(np.unravel_index(cols, (n[i], ranks[i + 1])))
+#
+#                 # store col indices for dimensions m_i, n_i, ... , m_d, n_d
+#                 col_inds[i - 1] = [[multi_indices[0, j]] + col_inds[i][multi_indices[1, j]] for j in range(ranks[i])]
+#
+#             # define TT core
+#             if len(cols) < y.shape[0]:
+#                 y = y[:len(cols), :]
+#             u_inv = np.linalg.inv(y[:, cols].copy())
+#             cores[i] = u_inv.dot(y).reshape([ranks[i], n[i], 1, ranks[i + 1]])
+#
+#         # define first core
+#         y = __hocur_extract_matrix(x, basis_list, b, sigma, None, col_inds[0])
+#         cores[0] = y.reshape([1, n[0], 1, ranks[1]])
+#
+#     # construct tensor train
+#     # ----------------------
+#
+#     psi = TT(cores)
+#
+#     return psi
+#
+#
+# def __hocur_first_col_inds(dimensions, ranks, multiplier):
+#     # max rank needs to be m(d+2) instead of m
+#     """
+#     Create random column indices.
+#
+#     Parameters
+#     ----------
+#     dimensions : list[int]
+#         dimensions of a given tensor
+#     ranks : list[int]
+#         ranks for decomposition, has to be smaller than the last dimension
+#     multiplier : int
+#         multiply the number of initially chosen column indices (given by ranks) in order to increase the probability of
+#         finding a 'full' set of linearly independent columns
+#
+#     Returns
+#     -------
+#     col_inds : list[list[int]]
+#         array containing single indices
+#     """
+#
+#     if max(ranks) > dimensions[-1]:
+#         raise ValueError('ranks need to be smaller than last dimension')
+#
+#     # define list of column indices
+#     col_inds = [None]
+#
+#     # insert column indices for last dimension
+#     col_inds.insert(0, [[j] for j in range(np.minimum(multiplier * ranks[-2], dimensions[-1]))])
+#
+#     for i in range(len(dimensions) - 3, -1, -1):
+#         # define array of flat indices
+#         flat_inds = np.arange(np.minimum(multiplier * ranks[i + 1], dimensions[i + 1] * ranks[i + 2]))
+#
+#         # convert flat indices to tuples
+#         multi_inds = np.array(np.unravel_index(flat_inds, (dimensions[i + 1], ranks[i + 2])))
+#
+#         # insert column indices
+#         col_inds.insert(0, [[multi_inds[0, j]] + col_inds[0][multi_inds[1, j]] for j in range(multi_inds.shape[1])])
+#
+#     return col_inds
+#
+#
+# def __hocur_extract_matrix(data, basis_list, b, sigma, row_coordinates_list, col_coordinates_list):
+#     """
+#     Extraction of a submatrix of dPsi(X).
+#
+#     Given a set of row and column coordinates, extracts a submatrix from dPsi(X) corresponding to
+#     the data matrix x and the set of basis functions stored in basis_list.
+#
+#     Parameters
+#     ----------
+#     data : np.ndarray
+#         data matrix
+#     basis_list : list[list[Function]]
+#         list of basis functions in every mode
+#     b : function
+#         drift, b:R^d -> R^d
+#     sigma : function
+#         diffusion, sigma: R^d -> R^(d,d)
+#     row_coordinates_list : list[list[int]]
+#         list of row indices
+#     col_coordinates_list : list[list[int]]
+#         list of column indices
+#
+#     Returns
+#     -------
+#     np.ndarray
+#         extracted matrix
+#     """
+#
+#     if row_coordinates_list is None:
+#         current_mode = len(basis_list[0])
+#         n_rows = 1
+#         n_cols = len(col_coordinates_list)
+#
+#         matrix = np.zeros([current_mode, n_cols])
+#         for j in range(n_cols):
+#             col_coordinates = col_coordinates_list[j]
+#             snapshot = data[:, col_coordinates[-1]]
+#             for l in range(current_mode):
+#                 s = [l] + col_coordinates[:-1]
+#                 matrix[l, j] = generator_on_product(basis_list, s, snapshot, b, sigma)
+#
+#     elif col_coordinates_list is None:
+#         current_mode = data.shape[1]
+#         n_rows = len(row_coordinates_list)
+#         n_cols = 1
+#
+#         matrix = np.zeros([n_rows * current_mode, 1])
+#         for i in range(n_rows):
+#             row_coordinates = row_coordinates_list[i]
+#             for l in range(current_mode):
+#                 s = row_coordinates
+#                 snapshot = data[:, l]
+#                 matrix[i * current_mode + l, 0] = generator_on_product(basis_list, s, snapshot, b, sigma)
+#
+#     else:
+#         n_rows = len(row_coordinates_list)
+#         n_cols = len(col_coordinates_list)
+#         current_index = len(row_coordinates_list[0])
+#         current_mode = len(basis_list[current_index])
+#
+#         matrix = np.zeros([n_rows * current_mode, n_cols])
+#         for j in range(n_cols):
+#             for i in range(n_rows):
+#                 col_coordinates = col_coordinates_list[j]
+#                 row_coordinates = row_coordinates_list[i]
+#                 snapshot = data[:, col_coordinates[-1]]
+#                 for l in range(current_mode):
+#                     s = row_coordinates + [l] + col_coordinates[:-1]
+#                     matrix[i * current_mode + l, j] = generator_on_product(basis_list, s, snapshot, b, sigma)
+#
+#     return matrix
 
 
 # def amuset_reversible_exact(data_matrix, basis_list, sigma, threshold=1e-2):
@@ -859,3 +851,34 @@ def _generator(f, x, b, sigma):
 
     a = sigma(x) @ sigma(x).T
     return np.inner(b(x), f.gradient(x)) + 0.5 * _frob_inner(a, f.hessian(x))
+
+
+def _amuset(u, s, v, dpsi):
+    """
+    Calculate the Matrix M in AMUSEt.
+
+    Parameters
+    ----------
+    u : TT
+        tensor u from svd of transformed data tensor
+    s : np.ndarray
+        s from svd of transformed data tensor
+    v : TT
+        tensor v from svd of transformed data tensor
+    dpsi : TT
+
+    Returns
+    -------
+    np.ndarray
+        Matrix M in AMUSEt
+    """
+    p = dpsi.order - 1
+    s_inv = np.diag(1.0 / s)
+
+    # calculate M
+    M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
+    M.tensordot(u, p, mode='first-first', overwrite=True)
+    M = M.cores[0][:, 0, 0, :]
+
+    return M

@@ -172,6 +172,7 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     m = x.shape[1]
     start_chunk = 0
     end_chunk = min(m, start_chunk + chunk_size)
+    print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
 
     s_inv = np.diag(1.0 / s)
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
@@ -183,6 +184,7 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     while end_chunk < m:
         start_chunk = end_chunk
         end_chunk = min(m, start_chunk + chunk_size)
+        print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
         dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
         M += _amuset(u, v, dPsi)
@@ -487,3 +489,49 @@ def _amuset(us, v, dpsi):
     M = M.cores[0][:, 0, 0, :]
 
     return M
+
+
+def _special_tensordot(A, B):
+    """
+    Tensordot between arrays A and B with special structure.
+
+    A and B have the structure that arises in the cores of dPsi. As A and B can be the result of a Kronecker product,
+    the entries of A and B can be matrices themselves. Thus A and B are modeled as 4D Arrays where the first and second
+    index refer to the rows and columns of A and B. The third and fourth index refer to the rows and colums of the
+    entries of A and B.
+    All nonzero elements of A and B are
+    in the diagonal [i,i,:,:], in the first row [0,:,:,:] and in the second column [:,1,:,:].
+    Furthermore A and B are quadratic (A.shape[0] = A.shape[1]).
+    The tensordot is calculated along both column dimensions of A (1,3) and both row dimensions of B (0,2).
+    The resulting array has the same structure as A and B.
+
+    Parameters
+    ----------
+    A : np.ndarray
+    B : np.ndarray
+
+    Returns
+    -------
+    np.ndarray
+        tensordot between A and B along the axis ((1,3), (0,2))
+
+    """
+    C = np.zeros((A.shape[0], B.shape[1], A.shape[2], B.shape[3]))
+
+    # diagonal
+    for i in range(A.shape[0]):
+        C[i, i, :, :] = A[i, i, :, :] @ B[i, i, :, :]
+
+    # entry (0, 1)
+    for i in range(A.shape[1]):
+        C[0, 1, :, :] += A[0, i, :, :] @ B[i, 1, :, :]
+
+    # first row
+    for i in range(2, B.shape[1]):
+        C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i, :, :] @ B[i, i, :, :]
+
+    # second column
+    for i in range(2, A.shape[0]):
+        C[i, 1, :, :] = A[i, 1, :, :] @ B[1, 1, :, :] + A[i, i, :, :] @ B[i, 1, :, :]
+
+    return C

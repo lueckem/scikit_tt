@@ -501,7 +501,7 @@ def _special_tensordot(A, B):
     entries of A and B.
     All nonzero elements of A and B are
     in the diagonal [i,i,:,:], in the first row [0,:,:,:] and in the second column [:,1,:,:].
-    Furthermore A and B are quadratic (A.shape[0] = A.shape[1]).
+    Furthermore A and B are quadratic (A.shape[0] = A.shape[1]) or A has only one row or B only one column.
     The tensordot is calculated along both column dimensions of A (1,3) and both row dimensions of B (0,2).
     The resulting array has the same structure as A and B.
 
@@ -518,20 +518,34 @@ def _special_tensordot(A, B):
     """
     C = np.zeros((A.shape[0], B.shape[1], A.shape[2], B.shape[3]))
 
-    # diagonal
-    for i in range(A.shape[0]):
-        C[i, i, :, :] = A[i, i, :, :] @ B[i, i, :, :]
+    if B.shape[1] > 1:  # B is a matrix
+        # diagonal
+        for i in range(min(A.shape[0], B.shape[1])):
+            C[i, i, :, :] = A[i, i, :, :] @ B[i, i, :, :]
 
-    # entry (0, 1)
-    for i in range(A.shape[1]):
-        C[0, 1, :, :] += A[0, i, :, :] @ B[i, 1, :, :]
+        # entry(0, 1)
+        for i in range(A.shape[1]):
+            C[0, 1, :, :] += A[0, i, :, :] @ B[i, 1, :, :]
 
-    # first row
-    for i in range(2, B.shape[1]):
-        C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i, :, :] @ B[i, i, :, :]
+        # first row
+        for i in range(2, B.shape[1]):
+            C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i, :, :] @ B[i, i, :, :]
 
-    # second column
-    for i in range(2, A.shape[0]):
-        C[i, 1, :, :] = A[i, 1, :, :] @ B[1, 1, :, :] + A[i, i, :, :] @ B[i, 1, :, :]
+        # second column
+        for i in range(2, A.shape[0]):
+            C[i, 1, :, :] = A[i, 1, :, :] @ B[1, 1, :, :] + A[i, i, :, :] @ B[i, 1, :, :]
+
+    else:  # B is a vector
+        # entry(0, 0)
+        for i in range(A.shape[1]):
+            C[0, 0, :, :] += A[0, i, :, :] @ B[i, 0, :, :]
+
+        if A.shape[0] > 1:
+            # entry(1, 0)
+            C[1, 0, :, :] = A[1, 1, :, :] @ B[1, 0, :, :]
+
+            # others
+            for i in range(2, A.shape[0]):
+                C[i, 0, :, :] = A[i, 1, :, :] @ B[1, 0, :, :] + A[i, i, :, :] @ B[i, 0, :, :]
 
     return C

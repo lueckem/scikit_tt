@@ -39,29 +39,42 @@ class TestHelperFunctions(TestCase):
         self.assertLess(abs(generator - generator2), self.tol)
 
     def test_special_tensordot(self):
-        dimA, dimA1, dimA2 = 100, 30, 40
-        dimB, dimB1, dimB2 = 100, 40, 30
-        A = np.zeros((dimA, dimA, dimA1, dimA2))
-        B = np.zeros((dimB, dimB, dimB1, dimB2))
+        dimsA = [(10, 10, 3, 4), (1, 10, 3, 4), (10, 10, 3, 4), (1, 10, 3, 4)]
+        dimsB = [(10, 10, 4, 3), (10, 10, 4, 3), (10, 1, 4, 3), (10, 1, 4, 3)]
 
-        # diagonal
-        for i in range(10):
-            A[i, i, :, :] = np.random.random((dimA1, dimA2))
-            B[i, i, :, :] = np.random.random((dimB1, dimB2))
+        for idx in range(len(dimsA)):
+            dimAi, dimAj, dimA1, dimA2 = dimsA[idx]
+            dimBi, dimBj, dimB1, dimB2 = dimsB[idx]
+            A = np.zeros((dimAi, dimAj, dimA1, dimA2))
+            B = np.zeros((dimBi, dimBj, dimB1, dimB2))
 
-        # first row
-        A[0, :, :, :] = np.random.random((dimA, dimA1, dimA2))
-        B[0, :, :, :] = np.random.random((dimB, dimB1, dimB2))
+            if A.shape[0] == 1:
+                A = np.random.random(A.shape)
+            else:
+                # diagonal
+                for i in range(min(A.shape[0], A.shape[1])):
+                    A[i, i, :, :] = np.random.random((dimA1, dimA2))
+                # first row
+                A[0, :, :, :] = np.random.random((dimAj, dimA1, dimA2))
+                # second column
+                A[:, 1, :, :] = np.random.random((dimAi, dimA1, dimA2))
 
-        # second column
-        A[:, 1, :, :] = np.random.random((dimA, dimA1, dimA2))
-        B[:, 1, :, :] = np.random.random((dimB, dimB1, dimB2))
+            if B.shape[1] == 1:
+                B = np.random.random(B.shape)
+            else:
+                # diagonal
+                for i in range(min(B.shape[0], B.shape[1])):
+                    B[i, i, :, :] = np.random.random((dimB1, dimB2))
+                # first row
+                B[0, :, :, :] = np.random.random((dimBj, dimB1, dimB2))
+                # second column
+                B[:, 1, :, :] = np.random.random((dimBi, dimB1, dimB2))
 
-        C1 = np.tensordot(A, B, axes=((1, 3), (0, 2)))
-        C1 = np.transpose(C1, [0, 2, 1, 3])
-        C2 = tgedmd._special_tensordot(A, B)
+            C1 = np.tensordot(A, B, axes=((1, 3), (0, 2)))
+            C1 = np.transpose(C1, [0, 2, 1, 3])
+            C2 = tgedmd._special_tensordot(A, B)
 
-        self.assertTrue((np.abs(C1 - C2) < self.tol).all())
+            self.assertTrue((np.abs(C1 - C2) < self.tol).all())
 
 
 class TestCores(TestCase):

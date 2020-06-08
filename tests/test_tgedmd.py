@@ -166,5 +166,39 @@ class TestTTDecomposition(TestCase):
         self.assertTrue((np.abs(dPsiX - dPsiX_chunks) < self.tol).all())
 
 
+class TestAMUSEt(TestCase):
+    def setUp(self):
+        self.tol = 1e-8
+        self.d = 4
+        self.p = self.d
+        self.m = 6
+
+        self.ls = LemonSlice(k=4, beta=1, c=1, d=self.d, alpha=10)
+
+        self.basis_list = []
+        for i in range(self.d):
+            self.basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(2, 6)])
+        self.n = [len(mode) for mode in self.basis_list]
+
+        self.x = np.random.random((self.d, self.m))
+        self.a = self.ls.diffusion(self.x) @ self.ls.diffusion(self.x).T
+
+        # build psi and dpsi
+        self.psi = tdt.basis_decomposition(self.x, self.basis_list)
+        p = self.psi.order - 1
+        self.u, self.s, self.v = self.psi.svd(p)
+        self.s_inv = np.diag(1.0 / self.s)
+        self.us = self.u.rank_tensordot(self.s_inv, mode='last')
+
+        self.dpsi = tgedmd.tt_decomposition(self.x, self.basis_list, self.ls.drift, self.ls.diffusion)
+
+    def test_amuset_chunks(self):
+        M = tgedmd._amuset(self.us, self.v, self.dpsi)
+        M2 = tgedmd._amuset_chunks(self.u, self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
+                                   threshold=0, max_rank=np.infty, chunk_size=2)
+
+        self.assertTrue((np.abs(M - M2) < self.tol).all())
+
+
 if __name__ == '__main__':
     ut.main()

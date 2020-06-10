@@ -144,6 +144,9 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     """
     Construct the Matrix M in AMUSEt in chunks.
 
+    If chunk_size = 1, M can be constructed using the special tensordot. In this case no compression takes places,
+    and threshold, max_rank are therefore ignored.
+
     Parameters
     ----------
     u : TT
@@ -174,20 +177,28 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     end_chunk = min(m, start_chunk + chunk_size)
     print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
 
+    # if the chunk_size is one we can use the _amuset_special
+    if chunk_size == 1:
+        amuse_fun = _amuset_special
+    else:
+        amuse_fun = _amuset
+
     s_inv = np.diag(1.0 / s)
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
-    dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-    M = _amuset(u, v, dPsi)
+    if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+    M = amuse_fun(u, v, dPsi)
 
     while end_chunk < m:
         start_chunk = end_chunk
         end_chunk = min(m, start_chunk + chunk_size)
         print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
         dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
-        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-        M += _amuset(u, v, dPsi)
+        if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+            dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+        M += amuse_fun(u, v, dPsi)
 
     return M
 
@@ -483,12 +494,75 @@ def _amuset(us, v, dpsi):
     """
     p = dpsi.order - 1
 
-    # calculate M
     M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
     M.tensordot(us, p, mode='first-first', overwrite=True)
     M = M.cores[0][:, 0, 0, :]
-
     return M
+
+
+def _amuset_special(us, v, dpsi):
+    """
+    Calculate the Matrix M in AMUSEt using the special tensordot.
+
+    DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
+
+    Parameters
+    ----------
+    us : TT
+        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
+    v : TT
+        tensor v from svd of transformed data tensor
+    dpsi : TT
+
+    Returns
+    -------
+    np.ndarray
+        Matrix M in AMUSEt
+        """
+    vdpsi = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
+    return _contract_dPsi_u(vdpsi, us)
+
+
+# todo: optimize tensordot that builds M_new
+def _contract_dPsi_u(vdpsi, us):
+    """
+    Index contraction between (V^T dPsi^T) and (U Sigma^-1) in AMUSE.
+
+    DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
+    Same as vdpsi.tensordot(us, p, mode='first-first') but using the _special_tensordot.
+    As it is a complete contraction over both, we return the resulting Matrix M and not a TT.
+
+    Parameters
+    ----------
+    vdpsi : TT
+    us : TT
+
+    Returns
+    -------
+    np.ndarray
+    """
+    num_axes = vdpsi.order
+
+    first_idx_self = 0
+    first_idx_other = 0
+
+    # calculate the contraction
+    M = np.tensordot(vdpsi.cores[first_idx_self], us.cores[first_idx_other], axes=([1, 2], [1, 2]))
+    # M.shape (r_0, r_1, s_0, s_1)
+
+    for i in range(1, num_axes - 1):
+        M_new = np.tensordot(vdpsi.cores[first_idx_self + i], us.cores[first_idx_other + i],
+                             axes=([1, 2], [1, 2]))
+        # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
+        M = _special_tensordot(M, M_new)
+
+    # in the last core we cannot use the special tensordot because the last core of (V^T dPsi^T) has rank r
+    M_new = np.tensordot(vdpsi.cores[-1], us.cores[-1], axes=([1, 2], [1, 2]))
+    # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
+    M = np.tensordot(M, M_new, axes=([1, 3], [0, 2]))  # shape (r_0, s_0, r_i, s_i)
+    M = np.transpose(M, [0, 2, 1, 3])  # shape (r_0, r_i, s_0, s_i)
+
+    return M[0, :, 0, :]
 
 
 def _special_tensordot(A, B):
@@ -528,7 +602,7 @@ def _special_tensordot(A, B):
             C[0, 1, :, :] += A[0, i, :, :] @ B[i, 1, :, :]
 
         # first row
-        for i in range(2, B.shape[1]):
+        for i in range(2, B.shape[0]):
             C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i, :, :] @ B[i, i, :, :]
 
         # second column

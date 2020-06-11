@@ -523,13 +523,12 @@ def _amuset_special(us, v, dpsi):
     return _contract_dPsi_u(vdpsi, us)
 
 
-# todo: optimize tensordot that builds M_new
 def _contract_dPsi_u(vdpsi, us):
     """
     Index contraction between (V^T dPsi^T) and (U Sigma^-1) in AMUSE.
 
     DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
-    Same as vdpsi.tensordot(us, p, mode='first-first') but using the _special_tensordot.
+    Same as vdpsi.tensordot(us, p, mode='first-first') but using _special_tensordot and _special_kron.
     As it is a complete contraction over both, we return the resulting Matrix M and not a TT.
 
     Parameters
@@ -543,16 +542,12 @@ def _contract_dPsi_u(vdpsi, us):
     """
     num_axes = vdpsi.order
 
-    first_idx_self = 0
-    first_idx_other = 0
-
     # calculate the contraction
-    M = np.tensordot(vdpsi.cores[first_idx_self], us.cores[first_idx_other], axes=([1, 2], [1, 2]))
+    M = _special_kron(vdpsi.cores[0], us.cores[0])
     # M.shape (r_0, r_1, s_0, s_1)
 
     for i in range(1, num_axes - 1):
-        M_new = np.tensordot(vdpsi.cores[first_idx_self + i], us.cores[first_idx_other + i],
-                             axes=([1, 2], [1, 2]))
+        M_new = _special_kron(vdpsi.cores[i], us.cores[i])
         # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
         M = _special_tensordot(M, M_new)
 
@@ -623,3 +618,75 @@ def _special_tensordot(A, B):
                 C[i, 0, :, :] = A[i, 1, :, :] @ B[1, 0, :, :] + A[i, i, :, :] @ B[i, 0, :, :]
 
     return C
+
+
+def _special_kron(dPsi, B):
+    """
+    Build Matrix M_new from AMUSE.
+
+    dPsi and B are TT cores (np.ndarray with order 4).
+    dPsi needs to have the special structure of the dPsi(x) cores.
+
+    dPsi : np.ndarray
+    B : np.ndarray
+
+    Returns
+    -------
+    np.ndarray
+        shape = (dPsi.shape[0], dPsi.shape[3], B.shape[0], B.shape[3])
+    """
+
+    C = np.zeros((dPsi.shape[0], dPsi.shape[3], B.shape[0], B.shape[3]))
+
+    if dPsi.shape[0] == 1 or dPsi.shape[3] == 1:  # dPsi is a vector
+        for i in range(dPsi.shape[0]):
+            for j in range(dPsi.shape[3]):
+                C[i, j, :, :] = np.tensordot(dPsi[i, :, 0, j], B[:, :, 0, :], axes=(0, 1))
+    else:  # dPsi is a matrix
+        # diagonal
+        psi = dPsi[0, :, 0, 0]
+        psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
+        for i in range(C.shape[0]):
+            C[i, i, :, :] = psi
+
+        # first row
+        for i in range(1, C.shape[1]):
+            C[0, i, :, :] = np.tensordot(dPsi[0, :, 0, i], B[:, :, 0, :], axes=(0, 1))
+
+        # 2nd column
+        for i in range(2, C.shape[0]):
+            C[i, 1, :, :] = np.tensordot(dPsi[i, :, 0, 1], B[:, :, 0, :], axes=(0, 1))
+
+    return C
+
+
+def _is_special(A):
+    """
+    Check if ndarray A has the special structure from the dpsi cores.
+
+    A.shape = (outer rows, outer coumns, inner rows, inner colums). (not a TT core!)
+
+    Parameters
+    ----------
+    A : np.ndarray
+       A.ndim = 4
+
+    Returns
+    -------
+    bool
+    """
+    if not A.ndim == 4:
+        raise ValueError('A should have ndim = 4')
+
+    if A.shape[0] == A.shape[1]:
+        for i in range(A.shape[0]):
+            for j in range(A.shape[1]):
+                if i == j or i == 0 or j == 1:
+                    continue
+                if not (A[i, j, :, :] == 0).all():
+                    return False
+
+    elif not (A.shape[0] == 1 or A.shape[1] == 1):
+        return False
+
+    return True

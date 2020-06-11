@@ -38,6 +38,40 @@ class TestHelperFunctions(TestCase):
 
         self.assertLess(abs(generator - generator2), self.tol)
 
+    def test_is_special(self):
+        # ---- special ----
+        A = np.zeros((10, 10, 3, 4))
+        # diagonal
+        for i in range(min(A.shape[0], A.shape[1])):
+            A[i, i, :, :] = np.random.random((3, 4))
+        # first row
+        A[0, :, :, :] = np.random.random((10, 3, 4))
+        # second column
+        A[:, 1, :, :] = np.random.random((10, 3, 4))
+        self.assertTrue(tgedmd._is_special(A))
+
+        A = np.random.random((10, 1, 3, 4))
+        self.assertTrue(tgedmd._is_special(A))
+
+        A = np.random.random((1, 10, 3, 4))
+        self.assertTrue(tgedmd._is_special(A))
+
+        # ---- not special ----
+        A = np.random.random((10, 10, 3, 4))
+        self.assertFalse(tgedmd._is_special(A))
+
+        A = np.zeros((10, 10, 3, 4))
+        # diagonal
+        for i in range(min(A.shape[0], A.shape[1])):
+            A[i, i, :, :] = np.random.random((3, 4))
+        # first row
+        A[0, :, :, :] = np.random.random((10, 3, 4))
+        # second column
+        A[:, 1, :, :] = np.random.random((10, 3, 4))
+        # false entry
+        A[1, 3, :, :] = np.random.random((3, 4))
+        self.assertFalse(tgedmd._is_special(A))
+
     def test_special_tensordot(self):
         dimsA = [(10, 10, 3, 4), (1, 10, 3, 4), (10, 10, 3, 4), (1, 10, 3, 4)]
         dimsB = [(10, 10, 4, 3), (10, 10, 4, 3), (10, 1, 4, 3), (10, 1, 4, 3)]
@@ -78,6 +112,9 @@ class TestHelperFunctions(TestCase):
 
 
 class TestCores(TestCase):
+    """
+    Test if tgedmd.dPsix constructs cores correctly.
+    """
     def setUp(self):
         self.tol = 1e-8
         self.d = 4
@@ -110,6 +147,8 @@ class TestCores(TestCase):
         self.assertTrue((core[0, :, 0, 2] == np.array([fun.partial(self.x, 0) for fun in self.basis_list[0]])).all())
         self.assertTrue((core[0, :, 0, 3] == np.array([fun.partial(self.x, 1) for fun in self.basis_list[0]])).all())
 
+        self.assertTrue(tgedmd._is_special(core.transpose((0, 3, 1, 2))))
+
     def test_core1(self):
         core = self.cores[1]
 
@@ -126,6 +165,8 @@ class TestCores(TestCase):
         self.assertTrue((core[3, :, 0, 1] == np.array([np.inner(self.a[1, :], fun.gradient(self.x))
                                                        for fun in self.basis_list[1]])).all())
 
+        self.assertTrue(tgedmd._is_special(core.transpose((0, 3, 1, 2))))
+
     def test_core_last(self):
         core = self.cores[-1]
 
@@ -139,6 +180,8 @@ class TestCores(TestCase):
                                                        for fun in self.basis_list[-1]])).all())
         self.assertTrue((core[-1, :, 0, 0] == np.array([np.inner(self.a[-1, :], fun.gradient(self.x))
                                                        for fun in self.basis_list[-1]])).all())
+
+        self.assertTrue(tgedmd._is_special(core.transpose((0, 3, 1, 2))))
 
     def test_tensor(self):
         """
@@ -227,6 +270,7 @@ class TestAMUSEt(TestCase):
         self.us = self.u.rank_tensordot(self.s_inv, mode='last')
 
         self.dpsi = tgedmd.tt_decomposition(self.x, self.basis_list, self.ls.drift, self.ls.diffusion)
+        self.vdpsi = self.dpsi.tensordot(self.v.rank_transpose(), 1, mode='last-first')
 
     def test_amuset_chunks(self):
         # with standard tensordot
@@ -255,6 +299,23 @@ class TestAMUSEt(TestCase):
 
         self.assertTrue((np.abs(M - M2) < self.tol).all())
 
+    def test_special_kron(self):
+        # only works for chunk_size=1 (or m=1)
+        m = 1
+        x = np.random.random((self.d, m))
+        psi = tdt.basis_decomposition(x, self.basis_list)
+        p = psi.order - 1
+        u, s, v = psi.svd(p)
+        s_inv = np.diag(1.0 / s)
+        us = u.rank_tensordot(s_inv, mode='last')
+        dpsi = tgedmd.tt_decomposition(x, self.basis_list, self.ls.drift, self.ls.diffusion)
+        vdpsi = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
+
+        for i in range(0, p):
+            M1 = np.tensordot(vdpsi.cores[i], us.cores[i], axes=([1, 2], [1, 2]))
+            M2 = tgedmd._special_kron(vdpsi.cores[i], us.cores[i])
+            self.assertTrue((np.abs(M1 - M2) < self.tol).all())
+
     def test_amuset_chunks_special(self):
         # with special tensordot (chunk_size = 1)
         M = tgedmd._amuset(self.us, self.v, self.dpsi)
@@ -262,6 +323,8 @@ class TestAMUSEt(TestCase):
                                    threshold=0, max_rank=np.infty, chunk_size=1)
 
         self.assertTrue((np.abs(M - M2) < self.tol).all())
+
+
 
 
 if __name__ == '__main__':

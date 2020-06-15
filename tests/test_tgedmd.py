@@ -1,4 +1,5 @@
 import unittest as ut
+from copy import deepcopy
 from unittest import TestCase
 import numpy as np
 import scikit_tt.data_driven.tgedmd as tgedmd
@@ -275,10 +276,13 @@ class TestAMUSEt(TestCase):
     def test_amuset_chunks(self):
         # with standard tensordot
         M = tgedmd._amuset(self.us, self.v, self.dpsi)
-        M2 = tgedmd._amuset_chunks(self.u, self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
+        M2 = tgedmd._amuset_chunks(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
                                    threshold=0, max_rank=np.infty, chunk_size=2)
-
+        M3 = tgedmd._amuset_chunks_parallel(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
+                                   threshold=0, max_rank=np.infty, chunk_size=2)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
+        self.assertTrue((np.abs(M - M3) < self.tol).all())
+
 
     def test_contract_dPsi_u(self):
         # only works for chunk_size=1 (or m=1)

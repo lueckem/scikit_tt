@@ -1,6 +1,7 @@
 import numpy as np
+import multiprocessing as mp
 from scikit_tt import TT
-from scikit_tt.data_driven.transform import basis_decomposition, Function
+from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
 
 
 def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
@@ -49,6 +50,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     u, s, v = psi.svd(p, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
     psi = u.rank_tensordot(np.diag(s))
     psi.concatenate(v, overwrite=True)  # rank reduced version
+    print(psi)
 
     print('calculating M in AMUSEt')
     if chunk_size is None:
@@ -201,6 +203,75 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
         M += amuse_fun(u, v, dPsi)
 
     return M
+
+
+def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v):
+    start_chunk, end_chunk = this_chunk
+    dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
+    if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+    return amuse_fun(u, v, dPsi)
+
+
+def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
+    """
+    Construct the Matrix M in AMUSEt in chunks using parallel processing.
+
+    If chunk_size = 1, M can be constructed using the special tensordot. In this case no compression takes places,
+    and threshold, max_rank are therefore ignored.
+
+    Parameters
+    ----------
+    u : TT
+    s : np.ndarray
+    v : TT
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float, optional
+        threshold for compression
+    max_rank : int, optional
+        maximal rank after compression
+    chunk_size : int, optional
+        how much data is used in one chunk
+
+    Returns
+    -------
+    np.ndarray
+        matrix M from AMUSEt
+    """
+
+    s_inv = np.diag(1.0 / s)
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
+
+    m = x.shape[1]
+    chunks = [(0, chunk_size)]
+    while True:
+        if chunks[-1][1] >= m:
+            chunks[-1] = (chunks[-1][0], m)
+            break
+        chunks.append((chunks[-1][1], chunks[-1][1] + chunk_size))
+
+    # if the chunk_size is one we can use the _amuset_special
+    if chunk_size == 1:
+        amuse_fun = _amuset_special
+    else:
+        amuse_fun = _amuset
+
+    pool = mp.Pool(mp.cpu_count())
+    results = []
+    for chunk in chunks:
+        results.append(pool.apply_async(calc_M, args=(chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v)))
+    results = [r.get() for r in results]
+    pool.close()
+    pool.join()
+
+    return np.sum(results, axis=0)
 
 
 def _tt_decomposition_one_chunk(x, basis_list, b, sigma, start_chunk, m_total):

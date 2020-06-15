@@ -6,6 +6,9 @@ import scipy.linalg as splin
 import time as _time
 from scikit_tt.tensor_train import TT
 
+import sympy
+from sympy.functions.special.polynomials import legendre
+
 
 class Function:
     """
@@ -119,6 +122,18 @@ class OneCoordinateFunction(Function):
         elif not 0 <= direction1 < self.dimension or not 0 <= direction2 < self.dimension:
             raise ValueError('direction has to be >= 0 and < self.dimension')
 
+    def gradient(self, t):
+        partial = self.partial(t, self.index)
+        out = np.zeros((self.dimension,))
+        out[self.index] = partial
+        return out
+
+    def hessian(self, t):
+        partial2 = self.partial2(t, self.index, self.index)
+        hess = np.zeros((self.dimension, self.dimension))
+        hess[self.index, self.index] = partial2
+        return hess
+
 
 class ConstantFunction(Function):
     def __init__(self, dimension=None):
@@ -198,10 +213,6 @@ class Identity(OneCoordinateFunction):
         self.check_partial2_input(t, direction1, direction2)
         return 0.0
 
-    def hessian(self, t):
-        self.check_call_input(t)
-        return np.zeros((self.dimension, self.dimension))
-
 
 class Monomial(OneCoordinateFunction):
     def __init__(self, index, exponent, dimension=None):
@@ -237,17 +248,48 @@ class Monomial(OneCoordinateFunction):
                 return self.exponent * (self.exponent - 1) * t[self.index] ** (self.exponent - 2)
         return 0.0
 
-    def gradient(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension,))
-        out[self.index] = self.partial(t, self.index)
-        return out
 
-    def hessian(self, t):
+class Legendre(OneCoordinateFunction):
+    def __init__(self, index, degree, domain=1, dimension=None):
+        """ Legendre Polynomial.
+
+            Parameters
+            ----------
+            index : int
+                define which entry of a snapshot is passed to the polynomial
+            degree : int
+                degree of the monomial, >= 0
+            domain : float
+                scale the Polynomial to the domain [-domain, domain]
+        """
+        super().__init__(index, dimension)
+        if degree < 0:
+            raise ValueError('exponent needs to be >= 0')
+        self.degree = degree
+        self.domain = domain
+
+        x, n = sympy.symbols("x, n")
+        lp = legendre(n, x/domain).subs(n, degree)
+        dlp = lp.diff(x)
+        self.poly = sympy.lambdify([x], lp, "numpy")
+        self.dpoly = sympy.lambdify([x], dlp, "numpy")
+        self.ddpoly = sympy.lambdify([x], dlp.diff(x), "numpy")
+
+    def __call__(self, t):
         self.check_call_input(t)
-        hess = np.zeros((self.dimension, self.dimension))
-        hess[self.index, self.index] = self.partial2(t, self.index, self.index)
-        return hess
+        return self.poly(t[self.index])
+
+    def partial(self, t, direction):
+        self.check_partial_input(t, direction)
+        if direction == self.index:
+            return self.dpoly(t[self.index])
+        return 0.0
+
+    def partial2(self, t, direction1, direction2):
+        self.check_partial2_input(t, direction1, direction2)
+        if direction1 == self.index and direction2 == self.index:
+            return self.ddpoly(t[self.index])
+        return 0.0
 
 
 class Sin(OneCoordinateFunction):
@@ -281,18 +323,6 @@ class Sin(OneCoordinateFunction):
             return -(self.alpha ** 2) * np.sin(self.alpha * t[self.index])
         return 0.0
 
-    def gradient(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension,))
-        out[self.index] = self.alpha * np.cos(self.alpha * t[self.index])
-        return out
-
-    def hessian(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension, self.dimension))
-        out[self.index, self.index] = -(self.alpha ** 2) * np.sin(self.alpha * t[self.index])
-        return out
-
 
 class Cos(OneCoordinateFunction):
     def __init__(self, index, alpha, dimension=None):
@@ -324,18 +354,6 @@ class Cos(OneCoordinateFunction):
             return -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
         return 0.0
 
-    def gradient(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension,))
-        out[self.index] = -self.alpha * np.sin(self.alpha * t[self.index])
-        return out
-
-    def hessian(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension, self.dimension))
-        out[self.index, self.index] = -(self.alpha ** 2) * np.cos(self.alpha * t[self.index])
-        return out
-
 
 class GaussFunction(OneCoordinateFunction):
     def __init__(self, index, mean, variance, dimension=None):
@@ -347,8 +365,9 @@ class GaussFunction(OneCoordinateFunction):
                 define which entry of a snapshot is passed to the Gauss function
             mean: float
                 mean of the distribution
-            variance: float (>0)
+            variance: float
                 variance
+            dimension: int, optional
         """
         super().__init__(index, dimension)
         self.mean = mean
@@ -368,16 +387,6 @@ class GaussFunction(OneCoordinateFunction):
         return 0.0
 
     def partial2(self, t, direction1, direction2):
-        raise NotImplementedError('not yet implemented')
-
-    def gradient(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension,))
-        out[self.index] = -np.exp(-(0.5 * (self.mean - t[self.index]) ** 2) /
-                                  self.variance) * (-self.mean + t[self.index]) / self.variance
-        return out
-
-    def hessian(self, t):
         raise NotImplementedError('not yet implemented')
 
 
@@ -414,17 +423,6 @@ class PeriodicGaussFunction(OneCoordinateFunction):
         return 0.0
 
     def partial2(self, t, direction1, direction2):
-        raise NotImplementedError('not yet implemented')
-
-    def gradient(self, t):
-        self.check_call_input(t)
-        out = np.zeros((self.dimension,))
-        out[self.index] = (0.5 * np.exp(-(0.5 * np.sin(0.5 * self.mean - 0.5 * t[self.index]) ** 2) / self.variance) *
-                           np.cos(0.5 * self.mean - 0.5 * t[self.index]) * np.sin(
-                    0.5 * self.mean - 0.5 * t[self.index])) / self.variance
-        return out
-
-    def hessian(self, t):
         raise NotImplementedError('not yet implemented')
 
 

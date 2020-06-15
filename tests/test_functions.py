@@ -156,6 +156,43 @@ class TestMonomial(TestCase):
         self.assertTrue((f.hessian(x) - hess == 0).all())
 
 
+class TestLegendre(TestCase):
+    def test_legendre(self):
+        f = tdt.Legendre(1, 3)
+        x = np.random.random((3,))
+        grad = np.zeros((3,))
+        grad[1] = 15 * x[1]**2 / 2 - 3 / 2
+        hess = np.zeros((3, 3))
+        hess[1, 1] = 15 * x[1]
+
+        self.assertEqual(f(x), 5 * x[1]**3 / 2 - 3 * x[1] / 2)
+        self.assertEqual(f.partial(x, 0), 0)
+        self.assertEqual(f.partial(x, 1), 15 * x[1]**2 / 2 - 3 / 2)
+        self.assertEqual(f.partial2(x, 0, 0), 0)
+        self.assertEqual(f.partial2(x, 1, 1), 15 * x[1])
+        self.assertTrue((f.gradient(x) - grad == 0).all())
+        self.assertTrue((f.hessian(x) - hess == 0).all())
+
+        f = tdt.Legendre(1, 3, domain=2)
+        x = np.random.random((3,))
+        grad = np.zeros((3,))
+        grad[1] = 15*x[1]**2/16 - 3/4
+        hess = np.zeros((3, 3))
+        hess[1, 1] = 30 * x[1] / 16
+
+        self.assertEqual(f(x), 5*x[1]**3/16 - 3*x[1]/4)
+        self.assertEqual(f.partial(x, 0), 0)
+        self.assertEqual(f.partial(x, 1), 15*x[1]**2/16 - 3/4)
+        self.assertEqual(f.partial2(x, 0, 0), 0)
+        self.assertEqual(f.partial2(x, 1, 1), 30 * x[1] / 16)
+        self.assertTrue((f.gradient(x) - grad == 0).all())
+        self.assertTrue((f.hessian(x) - hess == 0).all())
+
+    def test_exception(self):
+        with self.assertRaises(ValueError):
+            f = tdt.Legendre(1, -4)
+
+
 class TestSin(TestCase):
     def test_sin(self):
         f = tdt.Sin(1, 0.5)

@@ -1,11 +1,13 @@
+import time
+
 import numpy as np
-import multiprocessing as mp
+from pathos.multiprocessing import ProcessPool
 from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
 
 
 def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
-                 return_option='eigentensors', chunk_size=None):
+                 return_option='eigentensors', chunk_size=None, multiprocessing=False):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
 
@@ -33,6 +35,9 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
     chunk_size : int or None, optional
         if a chunk_size is specified, M in AMUSEt is built in chunks
+    multiprocessing : bool, optional
+        if True, the matrix M in AMUSEt is calculated using multiprocessing
+        (only works if M is built in chunks)
 
     Returns
     -------
@@ -60,7 +65,10 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         u.rank_tensordot(s_inv, mode='last', overwrite=True)
         M = _amuset(u, v, dpsi)
     else:
-        M = _amuset_chunks(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
+        if multiprocessing:
+            M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
+        else:
+            M = _amuset_chunks(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
 
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
@@ -245,7 +253,6 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     np.ndarray
         matrix M from AMUSEt
     """
-
     s_inv = np.diag(1.0 / s)
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
@@ -263,11 +270,13 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     else:
         amuse_fun = _amuset
 
-    pool = mp.Pool(mp.cpu_count())
+    pool = ProcessPool()
     results = []
     for chunk in chunks:
-        results.append(pool.apply_async(calc_M, args=(chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v)))
+        results.append(pool.apipe(calc_M, chunk, x, basis_list, b, sigma, m, chunk_size,
+                                  threshold, max_rank, amuse_fun, u, v))
     results = [r.get() for r in results]
+
     pool.close()
     pool.join()
 

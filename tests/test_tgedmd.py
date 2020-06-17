@@ -259,7 +259,7 @@ class TestAMUSEt(TestCase):
 
         self.basis_list = []
         for i in range(self.d):
-            self.basis_list.append([tdt.Identity(i)] + [tdt.Monomial(i, j) for j in range(2, 6)])
+            self.basis_list.append([tdt.Identity(i)] + [tdt.Legendre(i, j) for j in range(2, 6)])
 
         self.x = np.random.random((self.d, self.m))
 
@@ -282,7 +282,6 @@ class TestAMUSEt(TestCase):
                                    threshold=0, max_rank=np.infty, chunk_size=2)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
         self.assertTrue((np.abs(M - M3) < self.tol).all())
-
 
     def test_contract_dPsi_u(self):
         # only works for chunk_size=1 (or m=1)
@@ -327,8 +326,6 @@ class TestAMUSEt(TestCase):
                                    threshold=0, max_rank=np.infty, chunk_size=1)
 
         self.assertTrue((np.abs(M - M2) < self.tol).all())
-
-
 
 
 if __name__ == '__main__':

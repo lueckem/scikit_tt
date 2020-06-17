@@ -271,9 +271,9 @@ class Legendre(OneCoordinateFunction):
         x, n = sympy.symbols("x, n")
         lp = legendre(n, x/domain).subs(n, degree)
         dlp = lp.diff(x)
-        self.poly = sympy.lambdify([x], lp, "numpy")
-        self.dpoly = sympy.lambdify([x], dlp, "numpy")
-        self.ddpoly = sympy.lambdify([x], dlp.diff(x), "numpy")
+        self.poly = sympy.lambdify([x], lp, 'numexpr')
+        self.dpoly = sympy.lambdify([x], dlp, 'numexpr')
+        self.ddpoly = sympy.lambdify([x], dlp.diff(x), 'numexpr')
 
     def __call__(self, t):
         self.check_call_input(t)

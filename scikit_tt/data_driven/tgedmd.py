@@ -7,7 +7,7 @@ from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
 
 
 def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
-                 return_option='eigentensors', chunk_size=None, multiprocessing=False):
+                 return_option='eigentensors', chunk_size=None, num_cores=1):
     """
     AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
 
@@ -35,8 +35,8 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
     chunk_size : int or None, optional
         if a chunk_size is specified, M in AMUSEt is built in chunks
-    multiprocessing : bool, optional
-        if True, the matrix M in AMUSEt is calculated using multiprocessing
+    num_cores : int, optional
+        if > 1, the matrix M in AMUSEt is calculated using multiprocessing with num_processors cores
         (only works if M is built in chunks)
 
     Returns
@@ -65,8 +65,9 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         u.rank_tensordot(s_inv, mode='last', overwrite=True)
         M = _amuset(u, v, dpsi)
     else:
-        if multiprocessing:
-            M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
+        if num_cores > 1:
+            M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size,
+                                        num_cores)
         else:
             M = _amuset_chunks(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size)
 
@@ -222,7 +223,8 @@ def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_ra
     return amuse_fun(u, v, dPsi)
 
 
-def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
+def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100,
+                            num_cores=None):
     """
     Construct the Matrix M in AMUSEt in chunks using parallel processing.
 
@@ -248,6 +250,8 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
         maximal rank after compression
     chunk_size : int, optional
         how much data is used in one chunk
+    num_cores : int or None, optional
+        if None it tries to determine the number of available cores on the system
 
     Returns
     -------
@@ -271,7 +275,10 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     else:
         amuse_fun = _amuset
 
-    pool = ProcessPool()
+    if num_cores is None:
+        pool = ProcessPool()
+    else:
+        pool = ProcessPool(nodes=num_cores)
     results = []
     for chunk in chunks:
         results.append(pool.apipe(calc_M, chunk, x, basis_list, b, sigma, m, chunk_size,

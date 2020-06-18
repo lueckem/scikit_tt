@@ -278,7 +278,9 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     if num_cores is None:
         pool = ProcessPool()
     else:
-        pool = ProcessPool(nodes=num_cores)
+        pool = ProcessPool(ncpus=num_cores)
+
+    print(pool.ncpus)
     results = []
     for chunk in chunks:
         results.append(pool.apipe(calc_M, chunk, x, basis_list, b, sigma, m, chunk_size,

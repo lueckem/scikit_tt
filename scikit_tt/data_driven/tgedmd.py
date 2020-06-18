@@ -215,6 +215,7 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
 
 def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v):
     start_chunk, end_chunk = this_chunk
+    print('amuset chunk : {} - {}'.format(start_chunk, end_chunk))
     dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
     if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)

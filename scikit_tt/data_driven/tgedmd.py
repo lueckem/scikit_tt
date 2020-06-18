@@ -276,8 +276,10 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
         amuse_fun = _amuset
 
     if num_cores is None:
+        print('building parralel pool with num_cores = auto')
         pool = ProcessPool()
     else:
+        print('building parralel pool with num_cores = {}'.format(num_cores))
         pool = ProcessPool(ncpus=num_cores)
 
     print(pool.ncpus)

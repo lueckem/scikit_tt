@@ -168,6 +168,7 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
 
 
 def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v):
+    """ For parallelization (function has to be at top level) """
     start_chunk, end_chunk = this_chunk
     print('amuset chunk : {} - {}'.format(start_chunk, end_chunk))
     dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
@@ -235,7 +236,6 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
         print('building parralel pool with num_cores = {}'.format(num_cores))
         pool = ProcessPool(ncpus=num_cores)
 
-    print(pool.ncpus)
     results = []
     for chunk in chunks:
         results.append(pool.apipe(calc_M, chunk, x, basis_list, b, sigma, m, chunk_size,
@@ -846,9 +846,8 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
         M = _amuset_reversible(u, dpsi)
     else:
         if num_cores > 1:
-            pass
-            # M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size,
-            #                             num_cores)
+            M = _amuset_chunks_parallel_reversible(u, s, data_matrix, basis_list, sigma, threshold, max_rank,
+                                                   chunk_size, num_cores)
         else:
             M = _amuset_chunks_reversible(u, s, data_matrix, basis_list, sigma, threshold, max_rank, chunk_size)
 
@@ -943,6 +942,86 @@ def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_ra
         M += amuse_fun(u, dPsi)
 
     return M
+
+
+def calc_M_reversible(this_chunk, x, basis_list, sigma, m, chunk_size,
+                      threshold, max_rank, amuse_fun, u):
+    """ For parallelization (function has to be at top level) """
+    start_chunk, end_chunk = this_chunk
+    print('amuset chunk : {} - {}'.format(start_chunk, end_chunk))
+    dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
+    if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+    return amuse_fun(u, dPsi)
+
+
+def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100,
+                                       num_cores=None):
+    """
+    Construct the Matrix M in AMUSEt in chunks using parallel processing.
+
+    If chunk_size = 1, M can be constructed using the special tensordot. In this case no compression takes places,
+    and threshold, max_rank are therefore ignored.
+
+    Parameters
+    ----------
+    u : TT
+    s : np.ndarray
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float, optional
+        threshold for compression
+    max_rank : int, optional
+        maximal rank after compression
+    chunk_size : int, optional
+        how much data is used in one chunk
+    num_cores : int or None, optional
+        if None it tries to determine the number of available cores on the system
+
+    Returns
+    -------
+    np.ndarray
+        matrix M from AMUSEt
+    """
+    s_inv = np.diag(1.0 / s)
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
+
+    m = x.shape[1]
+    chunks = [(0, chunk_size)]
+    while True:
+        if chunks[-1][1] >= m:
+            chunks[-1] = (chunks[-1][0], m)
+            break
+        chunks.append((chunks[-1][1], chunks[-1][1] + chunk_size))
+
+    # if the chunk_size is one we can use the _amuset_special
+    # if chunk_size == 1:
+    #     amuse_fun = _amuset_special
+    # else:
+    #     amuse_fun = _amuset
+    amuse_fun = _amuset_reversible
+
+    if num_cores is None:
+        print('building parralel pool with num_cores = auto')
+        pool = ProcessPool()
+    else:
+        print('building parralel pool with num_cores = {}'.format(num_cores))
+        pool = ProcessPool(ncpus=num_cores)
+
+    results = []
+    for chunk in chunks:
+        results.append(pool.apipe(calc_M_reversible, chunk, x, basis_list, sigma, m, chunk_size,
+                                  threshold, max_rank, amuse_fun, u))
+    results = [r.get() for r in results]
+
+    pool.close()
+    pool.join()
+
+    return np.sum(results, axis=0)
 
 
 def tt_decomposition_reversible(x, basis_list, sigma):

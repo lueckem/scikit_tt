@@ -360,9 +360,11 @@ class TestAMUSEReversible(TestCase):
         M2 = tgedmd._amuset_chunks_reversible(deepcopy(self.u), self.s, self.x, self.basis_list,
                                               self.ls.diffusion,
                                               threshold=0, max_rank=np.infty, chunk_size=2)
-        print(M)
-        print(M2)
+        M3 = tgedmd._amuset_chunks_parallel_reversible(deepcopy(self.u), self.s, self.x, self.basis_list,
+                                                       self.ls.diffusion, num_cores=2,
+                                                       threshold=0, max_rank=np.infty, chunk_size=2)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
+        self.assertTrue((np.abs(M - M3) < self.tol).all())
 
 
 if __name__ == '__main__':

@@ -116,6 +116,7 @@ class TestCores(TestCase):
     """
     Test if tgedmd.dPsix constructs cores correctly.
     """
+
     def setUp(self):
         self.tol = 1e-8
         self.d = 4
@@ -180,7 +181,7 @@ class TestCores(TestCase):
         self.assertTrue((core[2, :, 0, 0] == np.array([np.inner(self.a[0, :], fun.gradient(self.x))
                                                        for fun in self.basis_list[-1]])).all())
         self.assertTrue((core[-1, :, 0, 0] == np.array([np.inner(self.a[-1, :], fun.gradient(self.x))
-                                                       for fun in self.basis_list[-1]])).all())
+                                                        for fun in self.basis_list[-1]])).all())
 
         self.assertTrue(tgedmd._is_special(core.transpose((0, 3, 1, 2))))
 
@@ -276,10 +277,12 @@ class TestAMUSEt(TestCase):
     def test_amuset_chunks(self):
         # with standard tensordot
         M = tgedmd._amuset(self.us, self.v, self.dpsi)
-        M2 = tgedmd._amuset_chunks(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
+        M2 = tgedmd._amuset_chunks(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift,
+                                   self.ls.diffusion,
                                    threshold=0, max_rank=np.infty, chunk_size=2)
-        M3 = tgedmd._amuset_chunks_parallel(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
-                                   threshold=0, max_rank=np.infty, chunk_size=2)
+        M3 = tgedmd._amuset_chunks_parallel(deepcopy(self.u), self.s, self.v, self.x, self.basis_list, self.ls.drift,
+                                            self.ls.diffusion,
+                                            threshold=0, max_rank=np.infty, chunk_size=2)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
         self.assertTrue((np.abs(M - M3) < self.tol).all())
 
@@ -325,6 +328,40 @@ class TestAMUSEt(TestCase):
         M2 = tgedmd._amuset_chunks(self.u, self.s, self.v, self.x, self.basis_list, self.ls.drift, self.ls.diffusion,
                                    threshold=0, max_rank=np.infty, chunk_size=1)
 
+        self.assertTrue((np.abs(M - M2) < self.tol).all())
+
+
+class TestAMUSEReversible(TestCase):
+    def setUp(self):
+        self.tol = 1e-8
+        self.d = 4
+        self.p = self.d
+        self.m = 6
+
+        self.ls = LemonSlice(k=4, beta=1, c=1, d=self.d, alpha=10)
+
+        self.basis_list = []
+        for i in range(self.d):
+            self.basis_list.append([tdt.Identity(i)] + [tdt.Legendre(i, j) for j in range(2, 6)])
+
+        self.x = np.random.random((self.d, self.m))
+
+        # build psi and dpsi
+        self.psi = tdt.basis_decomposition(self.x, self.basis_list)
+        p = self.psi.order - 1
+        self.u, self.s, self.v = self.psi.svd(p)
+        self.s_inv = np.diag(1.0 / self.s)
+        self.us = self.u.rank_tensordot(self.s_inv, mode='last')
+
+        self.dpsi = tgedmd.tt_decomposition_reversible(self.x, self.basis_list, self.ls.diffusion)
+
+    def test_amuset_chunks(self):
+        M = tgedmd._amuset_reversible(self.us, self.dpsi)
+        M2 = tgedmd._amuset_chunks_reversible(deepcopy(self.u), self.s, self.x, self.basis_list,
+                                              self.ls.diffusion,
+                                              threshold=0, max_rank=np.infty, chunk_size=2)
+        print(M)
+        print(M2)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
 
 

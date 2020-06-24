@@ -6,6 +6,7 @@ from scikit_tt import TT
 from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
 
 
+# ----------- The functions for general tgEDMD -------------------------------------------------------------------------
 def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
                  return_option='eigentensors', chunk_size=None, num_cores=1):
     """
@@ -101,54 +102,6 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         u.tensordot(psi, p, mode='first-first', overwrite=True)
         u = u.cores[0][0, :, 0, :].T
         return eigvals, u
-
-
-def tt_decomposition_chunks(x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
-    """
-    Calculate dPsi(X) in chunks.
-
-    The data is divided in chunks. dPsi(X) is calculated for the first and second chunk and the two tensors
-    added and rank-compressed. Then dPsi(X) is calculated for the third chunk, added and the resulting tensor is
-    again rank compressed. And so on...
-
-    Parameters
-    ----------
-    x : np.ndarray
-        snapshot matrix of size d x m
-    basis_list : list[list[Function]]
-        list of basis functions in every mode
-    b : function
-        drift, b:R^d -> R^d
-    sigma : function
-        diffusion, sigma: R^d -> R^(d,d)
-    threshold : float, optional
-        threshold for compression
-    max_rank : int, optional
-        maximal rank after compression
-    chunk_size : int, optional
-        how much data is used in one chunk
-
-    Returns
-    -------
-    TT
-        tensor train of basis function evaluations
-    """
-
-    m = x.shape[1]
-    start_chunk = 0
-    end_chunk = min(m, start_chunk + chunk_size)
-
-    dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
-    dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-
-    while end_chunk < m:
-        start_chunk = end_chunk
-        end_chunk = min(m, start_chunk + chunk_size)
-        new = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
-        dPsi += new
-        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-
-    return dPsi
 
 
 def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
@@ -782,3 +735,409 @@ def _is_special(A):
         return False
 
     return True
+
+
+def tt_decomposition_chunks(x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
+    """
+    Calculate dPsi(X) in chunks.
+
+    Warning: This is a bad approach. Using _amuset_chunks instead.
+
+    The data is divided in chunks. dPsi(X) is calculated for the first and second chunk and the two tensors
+    added and rank-compressed. Then dPsi(X) is calculated for the third chunk, added and the resulting tensor is
+    again rank compressed. And so on...
+
+    Parameters
+    ----------
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    b : function
+        drift, b:R^d -> R^d
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float, optional
+        threshold for compression
+    max_rank : int, optional
+        maximal rank after compression
+    chunk_size : int, optional
+        how much data is used in one chunk
+
+    Returns
+    -------
+    TT
+        tensor train of basis function evaluations
+    """
+
+    m = x.shape[1]
+    start_chunk = 0
+    end_chunk = min(m, start_chunk + chunk_size)
+
+    dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
+    dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+
+    while end_chunk < m:
+        start_chunk = end_chunk
+        end_chunk = min(m, start_chunk + chunk_size)
+        new = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
+        dPsi += new
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+
+    return dPsi
+
+
+# ----------- The functions for reversible tgEDMD ----------------------------------------------------------------------
+def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
+                            return_option='eigentensors', chunk_size=None, num_cores=1):
+    """
+    AMUSE algorithm for calculation of eigenvalues of the Koopman generator.
+
+    The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
+
+    Parameters
+    ----------
+    data_matrix : np.ndarray
+        snapshot matrix, shape (d, m)
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    num_eigvals : int, optional
+        number of eigenvalues and eigentensors that are returned
+        default: return all calculated eigenvalues and eigentensors
+    threshold : float, optional
+        threshold for svd of psi and dpsi
+    max_rank : int, optional
+        maximal rank of TT representations of psi and dpsi after svd/ortho
+    return_option : {'eigentensors', 'eigenfunctionevals'}
+        'eigentensors': return a list of the eigentensors of the koopman generator
+        'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
+    chunk_size : int or None, optional
+        if a chunk_size is specified, M in AMUSEt is built in chunks
+    num_cores : int, optional
+        if > 1, the matrix M in AMUSEt is calculated using multiprocessing with num_processors cores
+        (only works if M is built in chunks)
+
+    Returns
+    -------
+    eigvals : np.ndarray
+        eigenvalues of Koopman generator
+    eigtensors : list[TT] or np.ndarray
+        eigentensors of Koopman generator or evaluations of eigenfunctions at snapshots (shape (*, m))
+        (cf. return_option)
+    """
+
+    print('calculating psi...')
+    psi = basis_decomposition(data_matrix, basis_list)
+    p = psi.order - 1
+    # SVD of psi
+    u, s, v = psi.svd(p, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
+    psi = u.rank_tensordot(np.diag(s))
+    psi.concatenate(v, overwrite=True)  # rank reduced version
+    print(psi)
+
+    print('calculating M in AMUSEt')
+    if chunk_size is None:
+        dpsi = tt_decomposition_reversible(data_matrix, basis_list, sigma)
+        dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
+        s_inv = np.diag(1.0 / s)
+        u.rank_tensordot(s_inv, mode='last', overwrite=True)
+        M = _amuset_reversible(u, dpsi)
+    else:
+        if num_cores > 1:
+            pass
+            # M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size,
+            #                             num_cores)
+        else:
+            M = _amuset_chunks_reversible(u, s, data_matrix, basis_list, sigma, threshold, max_rank, chunk_size)
+
+    print('calculating eigenvalues and eigentensors...')
+    # calculate eigenvalues of M
+    eigvals, eigvecs = np.linalg.eig(M)
+
+    sorted_indices = np.argsort(-eigvals)
+    eigvals = eigvals[sorted_indices]
+    eigvecs = eigvecs[:, sorted_indices]
+
+    if not (eigvals < 0).all():
+        print('WARNING: there are eigenvalues >= 0')
+
+    if len(eigvals > num_eigvals):
+        eigvals = eigvals[:num_eigvals]
+        eigvecs = eigvecs[:, :num_eigvals]
+
+    # calculate eigentensors
+    if return_option == 'eigentensors':
+        eigvecs = eigvecs[:, :, np.newaxis]
+        eigtensors = []
+        for i in range(eigvals.shape[0]):
+            eigtensor = u.copy()
+            eigtensor.rank_tensordot(eigvecs[:, i, :], overwrite=True)
+            eigtensors.append(eigtensor)
+
+        return eigvals, eigtensors
+    else:
+        u.rank_tensordot(eigvecs, overwrite=True)
+        u.tensordot(psi, p, mode='first-first', overwrite=True)
+        u = u.cores[0][0, :, 0, :].T
+        return eigvals, u
+
+
+def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
+    """
+    Construct the Matrix M in AMUSEt in chunks.
+
+    If chunk_size = 1, M can be constructed using the special tensordot. In this case no compression takes places,
+    and threshold, max_rank are therefore ignored.
+
+    Parameters
+    ----------
+    u : TT
+    s : np.ndarray
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    threshold : float, optional
+        threshold for compression
+    max_rank : int, optional
+        maximal rank after compression
+    chunk_size : int, optional
+        how much data is used in one chunk
+
+    Returns
+    -------
+    np.ndarray
+        matrix M from AMUSEt
+    """
+    m = x.shape[1]
+    start_chunk = 0
+    end_chunk = min(m, start_chunk + chunk_size)
+    print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
+
+    # if the chunk_size is one we can use the _amuset_special
+    # if chunk_size == 1:
+    #     amuse_fun = _amuset_special
+    # else:
+    #     amuse_fun = _amuset
+    amuse_fun = _amuset_reversible
+
+    s_inv = np.diag(1.0 / s)
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
+
+    dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
+    if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+        dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+    M = amuse_fun(u, dPsi)
+
+    while end_chunk < m:
+        start_chunk = end_chunk
+        end_chunk = min(m, start_chunk + chunk_size)
+        print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
+        dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
+        if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
+            dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
+        M += amuse_fun(u, dPsi)
+
+    return M
+
+
+def tt_decomposition_reversible(x, basis_list, sigma):
+    """
+    Calculates exact tt-decomposition of dPsi(X).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+
+    Returns
+    -------
+    TT
+        tensor train of basis function evaluations
+    """
+
+    # number of snapshots
+    m = x.shape[1]
+    # dimension
+    d = x.shape[0]
+    # number of modes
+    p = len(basis_list)
+    # mode dimensions
+    n = [len(basis_list[i]) for i in range(p)]
+
+    # define cores 1,...,p + 1 as a list of empty arrays
+    cores = [np.zeros([1, n[0], 1, m * (d + 1)])] + \
+            [np.zeros([m * (d + 1), n[i], 1, m * (d + 1)]) for i in range(1, p - 1)] + \
+            [np.zeros([m * (d + 1), n[p - 1], 1, m * d])] + \
+            [np.zeros([m * d, d, 1, m])]
+
+    # insert elements of core 1
+    cores[0] = np.concatenate([dPsix_reversible(basis_list[0], x[:, k], position='first') for k in range(m)],
+                              axis=3)
+
+    # insert elements of cores 2,...,p-1
+    for i in range(1, p - 1):
+        for k in range(m):
+            cores[i][k * (d + 1): (k + 1) * (d + 1), :, :, k * (d + 1): (k + 1) * (d + 1)] = dPsix_reversible(
+                basis_list[i], x[:, k], position='middle')
+
+    # insert elements of core p
+    for k in range(m):
+        cores[p - 1][k * (d + 1): (k + 1) * (d + 1), :, :, k * d: (k + 1) * d] = dPsix_reversible(
+            basis_list[p - 1], x[:, k], position='last')
+
+    # insert elements of core p + 1
+    for k in range(m):
+        cores[p][k * d: (k + 1) * d, :, 0, k] = sigma(x[:, k])
+
+    # append core containing unit vectors
+    cores.append(np.eye(m).reshape(m, m, 1, 1))
+
+    return TT(cores)
+
+
+def _tt_decomposition_one_chunk_reversible(x, basis_list, sigma, start_chunk, m_total):
+    """
+    Calculate the exact tt_decomposition of a chunk of dPsi(X).
+
+    Parameters
+    ----------
+    x : np.ndarray
+        snapshot matrix of size d x m
+    basis_list : list[list[Function]]
+        list of basis functions in every mode
+    sigma : function
+        diffusion, sigma: R^d -> R^(d,d)
+    start_chunk : int
+        index of the first snapshot in the chunk
+    m_total : int
+        total number of snapshots (necessary to build the unit-vectors in the last core)
+
+    Returns
+    -------
+    TT
+        tt_decomposition of a chunk of dPsi(X)
+    """
+    # number of snapshots
+    m = x.shape[1]
+    # dimension
+    d = x.shape[0]
+    # number of modes
+    p = len(basis_list)
+    # mode dimensions
+    n = [len(basis_list[i]) for i in range(p)]
+
+    # define cores 1,...,p + 1 as a list of empty arrays
+    cores = [np.zeros([1, n[0], 1, m * (d + 1)])] + \
+            [np.zeros([m * (d + 1), n[i], 1, m * (d + 1)]) for i in range(1, p - 1)] + \
+            [np.zeros([m * (d + 1), n[p - 1], 1, m * d])] + \
+            [np.zeros([m * d, d, 1, m])]
+
+    # insert elements of core 1
+    cores[0] = np.concatenate([dPsix_reversible(basis_list[0], x[:, k], position='first') for k in range(m)],
+                              axis=3)
+
+    # insert elements of cores 2,...,p-1
+    for i in range(1, p - 1):
+        for k in range(m):
+            cores[i][k * (d + 1): (k + 1) * (d + 1), :, :, k * (d + 1): (k + 1) * (d + 1)] = dPsix_reversible(
+                basis_list[i], x[:, k], position='middle')
+
+    # insert elements of core p
+    for k in range(m):
+        cores[p - 1][k * (d + 1): (k + 1) * (d + 1), :, :, k * d: (k + 1) * d] = dPsix_reversible(
+            basis_list[p - 1], x[:, k], position='last')
+
+    # insert elements of core p + 1
+    for k in range(m):
+        cores[p][k * d: (k + 1) * d, :, 0, k] = sigma(x[:, k])
+
+    # append core containing unit vectors
+    last_core = np.zeros((m, m_total, 1, 1))
+    for k in range(m):
+        last_core[k, start_chunk + k, 0, 0] = 1
+    cores.append(last_core)
+
+    return TT(cores)
+
+
+def dPsix_reversible(psi_k, x, position='middle'):
+    """
+    Computes the k-th core of dPsi(x).
+
+    Parameters
+    ----------
+    psi_k : list[Function]
+        [psi_{k,1}, ... , psi_{k, n_k}]
+    x : np.ndarray
+        shape (d,)
+    position : {'first', 'middle', 'last'}, optional
+        first core: k = 1
+        middle core: 2 <= k <= p-1
+        last core: k = p (not the one with sigma!)
+
+    Returns
+    -------
+    np.ndarray
+        k-th core of dPsi(x)
+    """
+
+    d = x.shape[0]
+    nk = len(psi_k)
+    psi_kx = [fun(x) for fun in psi_k]
+
+    if position == 'middle':
+        core = np.zeros((d + 1, nk, 1, d + 1))
+
+        # diagonal
+        for i in range(d + 1):
+            core[i, :, 0, i] = psi_kx
+
+        # partials
+        for i in range(nk):
+            core[0, i, 0, 1:] = psi_k[i].gradient(x)
+
+    elif position == 'first':
+        core = np.zeros((1, nk, 1, d + 1))
+        core[0, :, 0, 0] = psi_kx
+        for i in range(nk):
+            core[0, i, 0, 1:] = psi_k[i].gradient(x)
+
+    else:
+        core = np.zeros((d + 1, nk, 1, d))
+        for i in range(d):
+            core[i + 1, :, 0, i] = psi_kx
+        for i in range(nk):
+            core[0, i, 0, :] = psi_k[i].gradient(x)
+
+    return core
+
+
+def _amuset_reversible(us, dpsi):
+    """
+    Calculate the Matrix M in reversible AMUSEt.
+
+    Parameters
+    ----------
+    us : TT
+        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
+    dpsi : TT
+
+    Returns
+    -------
+    np.ndarray
+        Matrix M in AMUSEt
+    """
+    p = dpsi.order - 2
+    M = dpsi.tensordot(us, p, mode='first-first')
+    M = M.tensordot(M, 2, mode='last-last')
+    M = M.cores[0][:, 0, 0, :]
+    return -0.5 * M

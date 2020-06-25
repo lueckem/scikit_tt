@@ -286,7 +286,7 @@ class TestAMUSEt(TestCase):
         self.assertTrue((np.abs(M - M2) < self.tol).all())
         self.assertTrue((np.abs(M - M3) < self.tol).all())
 
-    def test_contract_dPsi_u(self):
+    def test_amuset_special(self):
         # only works for chunk_size=1 (or m=1)
         m = 1
         x = np.random.random((self.d, m))
@@ -362,9 +362,36 @@ class TestAMUSEReversible(TestCase):
                                               threshold=0, max_rank=np.infty, chunk_size=2)
         M3 = tgedmd._amuset_chunks_parallel_reversible(deepcopy(self.u), self.s, self.x, self.basis_list,
                                                        self.ls.diffusion, num_cores=2,
-                                                       threshold=0, max_rank=np.infty, chunk_size=2)
+                                                       threshold=0, max_rank=np.infty, chunk_size=1)
         self.assertTrue((np.abs(M - M2) < self.tol).all())
         self.assertTrue((np.abs(M - M3) < self.tol).all())
+
+    def test_amuset_special(self):
+        # only works for chunk_size=1 (or m=1)
+        m = 1
+        x = np.random.random((self.d, m))
+        psi = tdt.basis_decomposition(x, self.basis_list)
+        p = psi.order - 1
+        u, s, v = psi.svd(p)
+        s_inv = np.diag(1.0 / s)
+        us = u.rank_tensordot(s_inv, mode='last')
+        dpsi = tgedmd.tt_decomposition_reversible(x, self.basis_list, self.ls.diffusion)
+
+        # calculate M using normal tensordot
+        M = tgedmd._amuset_reversible(us, dpsi)
+
+        # calculate M using special tensordot
+        M2 = tgedmd._amuset_special_reversible(us, dpsi)
+
+        self.assertTrue((np.abs(M - M2) < self.tol).all())
+
+    def test_amuset_chunks_special(self):
+        # with special tensordot (chunk_size = 1)
+        M = tgedmd._amuset_reversible(self.us, self.dpsi)
+        M2 = tgedmd._amuset_chunks_reversible(self.u, self.s, self.x, self.basis_list, self.ls.diffusion,
+                                              threshold=0, max_rank=np.infty, chunk_size=2)
+
+        self.assertTrue((np.abs(M - M2) < self.tol).all())
 
 
 if __name__ == '__main__':

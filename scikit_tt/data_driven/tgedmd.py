@@ -2,7 +2,7 @@ import time
 
 import numpy as np
 from pathos.multiprocessing import ProcessPool
-from scikit_tt import TT
+from scikit_tt.tensor_train import TT, ones
 from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
 
 
@@ -550,6 +550,8 @@ def _amuset_special(us, v, dpsi):
     Calculate the Matrix M in AMUSEt using the special tensordot.
 
     DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
+    Computes index contraction between (V^T dPsi^T) and (U Sigma^-1) in AMUSE using the special functions.
+
 
     Parameters
     ----------
@@ -565,29 +567,9 @@ def _amuset_special(us, v, dpsi):
         Matrix M in AMUSEt
         """
     vdpsi = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
-    return _contract_dPsi_u(vdpsi, us)
-
-
-def _contract_dPsi_u(vdpsi, us):
-    """
-    Index contraction between (V^T dPsi^T) and (U Sigma^-1) in AMUSE.
-
-    DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
-    Same as vdpsi.tensordot(us, p, mode='first-first') but using _special_tensordot and _special_kron.
-    As it is a complete contraction over both, we return the resulting Matrix M and not a TT.
-
-    Parameters
-    ----------
-    vdpsi : TT
-    us : TT
-
-    Returns
-    -------
-    np.ndarray
-    """
     num_axes = vdpsi.order
 
-    # calculate the contraction
+    # calculate the contraction vdpsi.tensordot(us, p, mode='first-first')
     M = _special_kron(vdpsi.cores[0], us.cores[0])
     # M.shape (r_0, r_1, s_0, s_1)
 
@@ -601,7 +583,6 @@ def _contract_dPsi_u(vdpsi, us):
     # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
     M = np.tensordot(M, M_new, axes=([1, 3], [0, 2]))  # shape (r_0, s_0, r_i, s_i)
     M = np.transpose(M, [0, 2, 1, 3])  # shape (r_0, r_i, s_0, s_i)
-
     return M[0, :, 0, :]
 
 
@@ -918,11 +899,10 @@ def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_ra
     print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
 
     # if the chunk_size is one we can use the _amuset_special
-    # if chunk_size == 1:
-    #     amuse_fun = _amuset_special
-    # else:
-    #     amuse_fun = _amuset
-    amuse_fun = _amuset_reversible
+    if chunk_size == 1:
+        amuse_fun = _amuset_special_reversible
+    else:
+        amuse_fun = _amuset_reversible
 
     s_inv = np.diag(1.0 / s)
     u.rank_tensordot(s_inv, mode='last', overwrite=True)
@@ -999,11 +979,10 @@ def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-
         chunks.append((chunks[-1][1], chunks[-1][1] + chunk_size))
 
     # if the chunk_size is one we can use the _amuset_special
-    # if chunk_size == 1:
-    #     amuse_fun = _amuset_special
-    # else:
-    #     amuse_fun = _amuset
-    amuse_fun = _amuset_reversible
+    if chunk_size == 1:
+        amuse_fun = _amuset_special_reversible
+    else:
+        amuse_fun = _amuset_reversible
 
     if num_cores is None:
         print('building parralel pool with num_cores = auto')
@@ -1220,3 +1199,151 @@ def _amuset_reversible(us, dpsi):
     M = M.tensordot(M, 2, mode='last-last')
     M = M.cores[0][:, 0, 0, :]
     return -0.5 * M
+
+
+def _amuset_special_reversible(us, dpsi):
+    """
+    Calculate the Matrix M in AMUSEt using the special tensordot.
+
+    DOES ONLY WORK FOR CHUNK_SIZE=1 !!!
+    Computes index contraction between  dPsi^T and (U Sigma^-1) in AMUSE using the special functions.
+
+
+    Parameters
+    ----------
+    us : TT
+        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
+    dpsi : TT
+
+    Returns
+    -------
+    np.ndarray
+        Matrix M in AMUSEt
+    """
+    p = dpsi.order - 2
+    M = _special_kron_reversible(dpsi.cores[0], us.cores[0])
+    # M.shape (r_0, r_1, s_0, s_1)
+
+    for i in range(1, p - 1):
+        M_new = _special_kron_reversible(dpsi.cores[i], us.cores[i])
+        # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
+        M = _special_tensordot_reversible(M, M_new)
+
+    # in the last core we cannot use the special tensordot because the last core of (V^T dPsi^T) has rank r
+    M_new = np.tensordot(dpsi.cores[p - 1], us.cores[p - 1], axes=([1, 2], [1, 2]))
+    # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
+    M = np.tensordot(M, M_new, axes=([1, 3], [0, 2]))  # shape (r_0, s_0, r_i, s_i)
+    M = np.transpose(M, [0, 2, 1, 3])
+
+    M = M[0, :, 0, :]
+
+    tdot = ones([1], [1], 1)
+
+    tdot.cores = dpsi.cores[p:]
+    tdot.cores[0] = np.tensordot(M, tdot.cores[0], axes=([0], [0]))
+    tdot.cores = us.cores[p:][::-1] + tdot.cores
+
+    tdot.order = len(tdot.cores)
+    tdot.row_dims = [tdot.cores[i].shape[1] for i in range(tdot.order)]
+    tdot.col_dims = [tdot.cores[i].shape[2] for i in range(tdot.order)]
+    tdot.ranks = [tdot.cores[i].shape[0] for i in range(tdot.order)] + [tdot.cores[-1].shape[3]]
+
+    M = tdot.tensordot(tdot, 2, mode='last-last')
+    M = M.cores[0][:, 0, 0, :]
+    return -0.5 * M
+
+
+def _special_kron_reversible(dPsi, B):
+    """
+    Build Matrix M_new from AMUSE.
+
+    dPsi and B are TT cores (np.ndarray with order 4).
+    dPsi needs to have the special structure of the reversible dPsi(x) cores.
+
+    dPsi : np.ndarray
+    B : np.ndarray
+
+    Returns
+    -------
+    np.ndarray
+        shape = (dPsi.shape[0], dPsi.shape[3], B.shape[0], B.shape[3])
+    """
+
+    C = np.zeros((dPsi.shape[0], dPsi.shape[3], B.shape[0], B.shape[3]))
+
+    if dPsi.shape[0] == 1 or dPsi.shape[3] == 1:  # dPsi is a vector
+        for i in range(dPsi.shape[0]):
+            for j in range(dPsi.shape[3]):
+                C[i, j, :, :] = np.tensordot(dPsi[i, :, 0, j], B[:, :, 0, :], axes=(0, 1))
+    else:  # dPsi is a matrix
+
+        if dPsi.shape[0] == dPsi.shape[3]:  # square core (1,...,p-1)
+            # diagonal
+            psi = dPsi[0, :, 0, 0]
+            psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
+            for i in range(C.shape[0]):
+                C[i, i, :, :] = psi
+
+            # first row
+            for i in range(1, C.shape[1]):
+                C[0, i, :, :] = np.tensordot(dPsi[0, :, 0, i], B[:, :, 0, :], axes=(0, 1))
+        else:  # core p
+            # diagonal
+            psi = dPsi[1, :, 0, 0]
+            psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
+            for i in range(C.shape[3]):
+                C[1 + i, i, :, :] = psi
+
+            # first row
+            for i in range(0, C.shape[1]):
+                C[0, i, :, :] = np.tensordot(dPsi[0, :, 0, i], B[:, :, 0, :], axes=(0, 1))
+
+    return C
+
+
+def _special_tensordot_reversible(A, B):
+    """
+    Tensordot between arrays A and B with special structure.
+
+    A and B have the structure that arises in the cores of dPsi. As A and B can be the result of a Kronecker product,
+    the entries of A and B can be matrices themselves. Thus A and B are modeled as 4D Arrays where the first and second
+    index refer to the rows and columns of A and B. The third and fourth index refer to the rows and colums of the
+    entries of A and B.
+    All nonzero elements of A and B are
+    in the diagonal [i,i,:,:], in the first row [0,:,:,:] and in the second column [:,1,:,:].
+    Furthermore A and B are quadratic (A.shape[0] = A.shape[1]) or A has only one row or B only one column.
+    The tensordot is calculated along both column dimensions of A (1,3) and both row dimensions of B (0,2).
+    The resulting array has the same structure as A and B.
+
+    Parameters
+    ----------
+    A : np.ndarray
+    B : np.ndarray
+
+    Returns
+    -------
+    np.ndarray
+        tensordot between A and B along the axis ((1,3), (0,2))
+
+    """
+    C = np.zeros((A.shape[0], B.shape[1], A.shape[2], B.shape[3]))
+
+    if B.shape[0] == B.shape[1]:
+        # diagonal
+        for i in range(min(A.shape[0], B.shape[1])):
+            C[i, i, :, :] = A[i, i, :, :] @ B[i, i, :, :]
+
+        # first row
+        for i in range(1, B.shape[0]):
+            C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i, :, :] @ B[i, i, :, :]
+    else:
+        # diagonal
+        if A.shape[0] > 1:
+            for i in range(B.shape[1]):
+                C[i + 1, i, :, :] = A[i + 1, i + 1, :, :] @ B[i + 1, i, :, :]
+
+        # first row
+        for i in range(0, B.shape[0] - 1):
+            C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i + 1, :, :] @ B[i + 1, i, :, :]
+
+    return C

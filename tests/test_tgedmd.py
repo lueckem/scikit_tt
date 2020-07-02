@@ -394,5 +394,20 @@ class TestAMUSEReversible(TestCase):
         self.assertTrue((np.abs(M - M2) < self.tol).all())
 
 
+class TestSigmaFromData(TestCase):
+    def test_sigma_from_data(self):
+        tol = 1e-8
+        d = 4
+        d2 = 6
+        m = 50
+        traj = np.random.random((d, m))
+        traj_sigma = np.random.random((d, d2, m))
+
+        sigma = tgedmd.SigmaFromData(traj, traj_sigma)
+
+        for i in range(m):
+            self.assertTrue((np.abs(sigma(traj[:, i]) - traj_sigma[:, :, i]) < tol).all())
+
+
 if __name__ == '__main__':
     ut.main()

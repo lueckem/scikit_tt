@@ -3,7 +3,8 @@ import time
 import numpy as np
 from pathos.multiprocessing import ProcessPool
 from scikit_tt.tensor_train import TT, ones
-from scikit_tt.data_driven.transform import basis_decomposition, Function, hocur
+from scikit_tt.data_driven.transform import basis_decomposition, Function
+from scipy.interpolate import NearestNDInterpolator
 
 
 # ----------- The functions for general tgEDMD -------------------------------------------------------------------------
@@ -1031,11 +1032,13 @@ def tt_decomposition_reversible(x, basis_list, sigma):
     # mode dimensions
     n = [len(basis_list[i]) for i in range(p)]
 
+    d2 = sigma(x[:, 0]).shape[1]
+
     # define cores 1,...,p + 1 as a list of empty arrays
     cores = [np.zeros([1, n[0], 1, m * (d + 1)])] + \
             [np.zeros([m * (d + 1), n[i], 1, m * (d + 1)]) for i in range(1, p - 1)] + \
             [np.zeros([m * (d + 1), n[p - 1], 1, m * d])] + \
-            [np.zeros([m * d, d, 1, m])]
+            [np.zeros([m * d, d2, 1, m])]
 
     # insert elements of core 1
     cores[0] = np.concatenate([dPsix_reversible(basis_list[0], x[:, k], position='first') for k in range(m)],
@@ -1093,11 +1096,13 @@ def _tt_decomposition_one_chunk_reversible(x, basis_list, sigma, start_chunk, m_
     # mode dimensions
     n = [len(basis_list[i]) for i in range(p)]
 
+    d2 = sigma(x[:, 0]).shape[1]
+
     # define cores 1,...,p + 1 as a list of empty arrays
     cores = [np.zeros([1, n[0], 1, m * (d + 1)])] + \
             [np.zeros([m * (d + 1), n[i], 1, m * (d + 1)]) for i in range(1, p - 1)] + \
             [np.zeros([m * (d + 1), n[p - 1], 1, m * d])] + \
-            [np.zeros([m * d, d, 1, m])]
+            [np.zeros([m * d, d2, 1, m])]
 
     # insert elements of core 1
     cores[0] = np.concatenate([dPsix_reversible(basis_list[0], x[:, k], position='first') for k in range(m)],
@@ -1347,3 +1352,35 @@ def _special_tensordot_reversible(A, B):
             C[0, i, :, :] = A[0, 0, :, :] @ B[0, i, :, :] + A[0, i + 1, :, :] @ B[i + 1, i, :, :]
 
     return C
+
+
+class SigmaFromData:
+    def __init__(self, traj, traj_sigma):
+        """
+        If sigma is not given as a function but as data,
+        use this class to create a function from the data.
+
+        Parameters
+        ----------
+        traj : np.ndarray
+            trajectory of data x, shape (d, m)
+        traj_sigma : np.ndarray
+            trajectory of sigma(x), shape (d, d2, m)
+        """
+        self.d1, self.d2, self.m = traj_sigma.shape
+        self.interpol = NearestNDInterpolator(traj.T, np.reshape(traj_sigma, (-1, self.m)).T)
+
+    def __call__(self, x):
+        """
+        Parameters
+        ----------
+        x : np.ndarray
+            point to evaluate sigma at, shape (d,)
+
+        Returns
+        -------
+        np.ndarray
+            sigma(x), shape (d, d2)
+        """
+        out = self.interpol(np.reshape(x, (1, -1)))
+        return np.reshape(out, (self.d1, self.d2))

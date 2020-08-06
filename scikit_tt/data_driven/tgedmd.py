@@ -55,8 +55,10 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     p = psi.order - 1
     # SVD of psi
     u, s, v = psi.svd(p, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
+    s_inv = np.diag(1.0 / s)
     psi = u.rank_tensordot(np.diag(s))
     psi.concatenate(v, overwrite=True)  # rank reduced version
+    v = (v.cores[0][:, :, 0, 0]).T  # translate v from TT to np.ndarray
     print(psi)
 
     print('calculating M in AMUSEt')
@@ -64,8 +66,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         dpsi = tt_decomposition(data_matrix, basis_list, b, sigma)
         dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
         s_inv = np.diag(1.0 / s)
-        u.rank_tensordot(s_inv, mode='last', overwrite=True)
-        M = _amuset(u, v, dpsi)
+        M = _amuset(u, v, s_inv, dpsi)
     else:
         if num_cores > 1:
             M = _amuset_chunks_parallel(u, s, v, data_matrix, basis_list, b, sigma, threshold, max_rank, chunk_size,
@@ -87,6 +88,8 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
     if len(eigvals > num_eigvals):
         eigvals = eigvals[:num_eigvals]
         eigvecs = eigvecs[:, :num_eigvals]
+
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     # calculate eigentensors
     if return_option == 'eigentensors':
@@ -116,7 +119,7 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     ----------
     u : TT
     s : np.ndarray
-    v : TT
+    v : np.ndarray
     x : np.ndarray
         snapshot matrix of size d x m
     basis_list : list[list[Function]]
@@ -142,19 +145,14 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
     end_chunk = min(m, start_chunk + chunk_size)
     print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
 
-    # if the chunk_size is one we can use the _amuset_special
-    if chunk_size == 1:
-        amuse_fun = _amuset_special
-    else:
-        amuse_fun = _amuset
-
     s_inv = np.diag(1.0 / s)
-    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
     if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-    M = amuse_fun(u, v, dPsi)
+        M = _amuset(u, v, s_inv, dPsi)
+    else:
+        M = _amuset_special(u, v, s_inv, dPsi, 0)
 
     while end_chunk < m:
         start_chunk = end_chunk
@@ -163,19 +161,22 @@ def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np
         dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
         if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
             dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-        M += amuse_fun(u, v, dPsi)
+            M += _amuset(u, v, s_inv, dPsi)
+        else:
+            M += _amuset_special(u, v, s_inv, dPsi, start_chunk)
 
     return M
 
 
-def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, amuse_fun, u, v):
+def calc_M(this_chunk, x, basis_list, b, sigma, m, chunk_size, threshold, max_rank, u, s_inv, v):
     """ For parallelization (function has to be at top level) """
     start_chunk, end_chunk = this_chunk
     print('amuset chunk : {} - {}'.format(start_chunk, end_chunk))
     dPsi = _tt_decomposition_one_chunk(x[:, start_chunk:end_chunk], basis_list, b, sigma, start_chunk, m)
     if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-    return amuse_fun(u, v, dPsi)
+        return _amuset(u, v, s_inv, dPsi)
+    return _amuset_special(u, v, s_inv, dPsi, start_chunk)
 
 
 def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100,
@@ -190,7 +191,7 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     ----------
     u : TT
     s : np.ndarray
-    v : TT
+    v : np.ndarry
     x : np.ndarray
         snapshot matrix of size d x m
     basis_list : list[list[Function]]
@@ -214,7 +215,6 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
         matrix M from AMUSEt
     """
     s_inv = np.diag(1.0 / s)
-    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     m = x.shape[1]
     chunks = [(0, chunk_size)]
@@ -223,12 +223,6 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
             chunks[-1] = (chunks[-1][0], m)
             break
         chunks.append((chunks[-1][1], chunks[-1][1] + chunk_size))
-
-    # if the chunk_size is one we can use the _amuset_special
-    if chunk_size == 1:
-        amuse_fun = _amuset_special
-    else:
-        amuse_fun = _amuset
 
     if num_cores is None:
         print('building parralel pool with num_cores = auto')
@@ -240,7 +234,7 @@ def _amuset_chunks_parallel(u, s, v, x, basis_list, b, sigma, threshold=1e-2, ma
     results = []
     for chunk in chunks:
         results.append(pool.apipe(calc_M, chunk, x, basis_list, b, sigma, m, chunk_size,
-                                  threshold, max_rank, amuse_fun, u, v))
+                                  threshold, max_rank, u, s_inv, v))
     results = [r.get() for r in results]
 
     pool.close()
@@ -521,16 +515,18 @@ def _generator(f, x, b, sigma):
     return np.inner(b(x), f.gradient(x)) + 0.5 * _frob_inner(a, f.hessian(x))
 
 
-def _amuset(us, v, dpsi):
+def _amuset(u, v, s_inv, dpsi):
     """
     Calculate the Matrix M in AMUSEt.
 
     Parameters
     ----------
-    us : TT
-        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
-    v : TT
-        tensor v from svd of transformed data tensor
+    u : TT
+        tensor u from svd of transformed data tensor
+    v : np.ndarray
+        v from svd of transformed data tensor, shape = (m, r)
+    s_inv : np.ndarray
+        Sigma^-1 from svd of transformed data tensor
     dpsi : TT
 
     Returns
@@ -539,14 +535,13 @@ def _amuset(us, v, dpsi):
         Matrix M in AMUSEt
     """
     p = dpsi.order - 1
-
-    M = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
-    M.tensordot(us, p, mode='first-first', overwrite=True)
-    M = M.cores[0][:, 0, 0, :]
+    M = dpsi.tensordot(u, p, mode='first-first')
+    M = M.cores[0][:, :, 0, 0]
+    M = v.T @ M.T @ s_inv
     return M
 
 
-def _amuset_special(us, v, dpsi):
+def _amuset_special(u, v, s_inv, dpsi, k):
     """
     Calculate the Matrix M in AMUSEt using the special tensordot.
 
@@ -556,35 +551,31 @@ def _amuset_special(us, v, dpsi):
 
     Parameters
     ----------
-    us : TT
-        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
-    v : TT
-        tensor v from svd of transformed data tensor
+    u : TT
+        tensor u from svd of transformed data tensor
+    v : np.ndarray
+        v from svd of transformed data tensor, shape = (m, r)
+    s_inv : np.ndarray
+        Sigma^-1 from svd of transformed data tensor
     dpsi : TT
+    k : int
+        index of snapshot
 
     Returns
     -------
     np.ndarray
         Matrix M in AMUSEt
-        """
-    vdpsi = dpsi.tensordot(v.rank_transpose(), 1, mode='last-first')
-    num_axes = vdpsi.order
-
-    # calculate the contraction vdpsi.tensordot(us, p, mode='first-first')
-    M = _special_kron(vdpsi.cores[0], us.cores[0])
+    """
+    # calculate the contraction dpsi.tensordot(u, p, mode='first-first')
+    M = _special_kron(dpsi.cores[0], u.cores[0])
     # M.shape (r_0, r_1, s_0, s_1)
 
-    for i in range(1, num_axes - 1):
-        M_new = _special_kron(vdpsi.cores[i], us.cores[i])
+    for i in range(1, dpsi.order - 1):
+        M_new = _special_kron(dpsi.cores[i], u.cores[i])
         # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
         M = _special_tensordot(M, M_new)
 
-    # in the last core we cannot use the special tensordot because the last core of (V^T dPsi^T) has rank r
-    M_new = np.tensordot(vdpsi.cores[-1], us.cores[-1], axes=([1, 2], [1, 2]))
-    # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
-    M = np.tensordot(M, M_new, axes=([1, 3], [0, 2]))  # shape (r_0, s_0, r_i, s_i)
-    M = np.transpose(M, [0, 2, 1, 3])  # shape (r_0, r_i, s_0, s_i)
-    return M[0, :, 0, :]
+    return np.outer(v[k, :], s_inv @ M[0, 0, 0, :])
 
 
 def _special_tensordot(A, B):
@@ -815,6 +806,7 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
     p = psi.order - 1
     # SVD of psi
     u, s, v = psi.svd(p, threshold=threshold, max_rank=max_rank, ortho_l=True, ortho_r=False)
+    s_inv = np.diag(1.0 / s)
     psi = u.rank_tensordot(np.diag(s))
     psi.concatenate(v, overwrite=True)  # rank reduced version
     print(psi)
@@ -823,9 +815,7 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
     if chunk_size is None:
         dpsi = tt_decomposition_reversible(data_matrix, basis_list, sigma)
         dpsi = dpsi.ortho_left(threshold=threshold, max_rank=max_rank)
-        s_inv = np.diag(1.0 / s)
-        u.rank_tensordot(s_inv, mode='last', overwrite=True)
-        M = _amuset_reversible(u, dpsi)
+        M = _amuset_reversible(u, s_inv, dpsi)
     else:
         if num_cores > 1:
             M = _amuset_chunks_parallel_reversible(u, s, data_matrix, basis_list, sigma, threshold, max_rank,
@@ -847,6 +837,8 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
     if len(eigvals > num_eigvals):
         eigvals = eigvals[:num_eigvals]
         eigvecs = eigvecs[:, :num_eigvals]
+
+    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     # calculate eigentensors
     if return_option == 'eigentensors':
@@ -899,19 +891,14 @@ def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_ra
     end_chunk = min(m, start_chunk + chunk_size)
     print('amuset: chunk {} - {}'.format(start_chunk, end_chunk))
 
-    # if the chunk_size is one we can use the _amuset_special
-    if chunk_size == 1:
-        amuse_fun = _amuset_special_reversible
-    else:
-        amuse_fun = _amuset_reversible
-
     s_inv = np.diag(1.0 / s)
-    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
     if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-    M = amuse_fun(u, dPsi)
+        M = _amuset_reversible(u, s_inv, dPsi)
+    else:
+        M = _amuset_special_reversible(u, s_inv, dPsi)
 
     while end_chunk < m:
         start_chunk = end_chunk
@@ -920,20 +907,23 @@ def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_ra
         dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
         if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
             dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-        M += amuse_fun(u, dPsi)
+            M += _amuset_reversible(u, s_inv, dPsi)
+        else:
+            M += _amuset_special_reversible(u, s_inv, dPsi)
 
     return M
 
 
 def calc_M_reversible(this_chunk, x, basis_list, sigma, m, chunk_size,
-                      threshold, max_rank, amuse_fun, u):
+                      threshold, max_rank, u, s_inv):
     """ For parallelization (function has to be at top level) """
     start_chunk, end_chunk = this_chunk
     print('amuset chunk : {} - {}'.format(start_chunk, end_chunk))
     dPsi = _tt_decomposition_one_chunk_reversible(x[:, start_chunk:end_chunk], basis_list, sigma, start_chunk, m)
     if chunk_size > 1:  # for chunk_size = 1 the structure mustnt change
         dPsi.ortho_left(threshold=threshold, max_rank=max_rank)
-    return amuse_fun(u, dPsi)
+        return _amuset_reversible(u, s_inv, dPsi)
+    return _amuset_special_reversible(u, s_inv, dPsi)
 
 
 def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100,
@@ -969,7 +959,6 @@ def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-
         matrix M from AMUSEt
     """
     s_inv = np.diag(1.0 / s)
-    u.rank_tensordot(s_inv, mode='last', overwrite=True)
 
     m = x.shape[1]
     chunks = [(0, chunk_size)]
@@ -978,12 +967,6 @@ def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-
             chunks[-1] = (chunks[-1][0], m)
             break
         chunks.append((chunks[-1][1], chunks[-1][1] + chunk_size))
-
-    # if the chunk_size is one we can use the _amuset_special
-    if chunk_size == 1:
-        amuse_fun = _amuset_special_reversible
-    else:
-        amuse_fun = _amuset_reversible
 
     if num_cores is None:
         print('building parralel pool with num_cores = auto')
@@ -995,7 +978,7 @@ def _amuset_chunks_parallel_reversible(u, s, x, basis_list, sigma, threshold=1e-
     results = []
     for chunk in chunks:
         results.append(pool.apipe(calc_M_reversible, chunk, x, basis_list, sigma, m, chunk_size,
-                                  threshold, max_rank, amuse_fun, u))
+                                  threshold, max_rank, u, s_inv))
     results = [r.get() for r in results]
 
     pool.close()
@@ -1184,14 +1167,16 @@ def dPsix_reversible(psi_k, x, position='middle'):
     return core
 
 
-def _amuset_reversible(us, dpsi):
+def _amuset_reversible(u, s_inv, dpsi):
     """
     Calculate the Matrix M in reversible AMUSEt.
 
     Parameters
     ----------
-    us : TT
-        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
+    u : TT
+        tensor u from svd of transformed data tensor
+    s_inv : np.ndarray
+        matrix Sigma^-1 from svd of transformed data tensor
     dpsi : TT
 
     Returns
@@ -1200,13 +1185,15 @@ def _amuset_reversible(us, dpsi):
         Matrix M in AMUSEt
     """
     p = dpsi.order - 2
+
+    us = u.rank_tensordot(s_inv, mode='last')
     M = dpsi.tensordot(us, p, mode='first-first')
     M = M.tensordot(M, 2, mode='last-last')
     M = M.cores[0][:, 0, 0, :]
     return -0.5 * M
 
 
-def _amuset_special_reversible(us, dpsi):
+def _amuset_special_reversible(u, s_inv, dpsi):
     """
     Calculate the Matrix M in AMUSEt using the special tensordot.
 
@@ -1216,8 +1203,10 @@ def _amuset_special_reversible(us, dpsi):
 
     Parameters
     ----------
-    us : TT
-        tensor u.rank_tensordot(s_inv, mode='last'), where u, s from svd of transformed data tensor
+    u : TT
+        tensor u from svd of transformed data tensor
+    s_inv : np.ndarray
+        matrix Sigma^-1 from svd of transformed data tensor
     dpsi : TT
 
     Returns
@@ -1225,37 +1214,20 @@ def _amuset_special_reversible(us, dpsi):
     np.ndarray
         Matrix M in AMUSEt
     """
+
     p = dpsi.order - 2
-    M = _special_kron_reversible(dpsi.cores[0], us.cores[0])
+    M = _special_kron_reversible(dpsi.cores[0], u.cores[0])
     # M.shape (r_0, r_1, s_0, s_1)
 
-    for i in range(1, p - 1):
-        M_new = _special_kron_reversible(dpsi.cores[i], us.cores[i])
+    for i in range(1, p):
+        M_new = _special_kron_reversible(dpsi.cores[i], u.cores[i])
         # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
         M = _special_tensordot_reversible(M, M_new)
 
-    # in the last core we cannot use the special tensordot because the last core of (V^T dPsi^T) has rank r
-    M_new = np.tensordot(dpsi.cores[p - 1], us.cores[p - 1], axes=([1, 2], [1, 2]))
-    # M_new.shape (r_{i-1}, r_i, s_{i-1}, s_i)
-    M = np.tensordot(M, M_new, axes=([1, 3], [0, 2]))  # shape (r_0, s_0, r_i, s_i)
-    M = np.transpose(M, [0, 2, 1, 3])
-
-    M = M[0, :, 0, :]
-
-    tdot = ones([1], [1], 1)
-
-    tdot.cores = dpsi.cores[p:]
-    tdot.cores[0] = np.tensordot(M, tdot.cores[0], axes=([0], [0]))
-    tdot.cores = us.cores[p:][::-1] + tdot.cores
-
-    tdot.order = len(tdot.cores)
-    tdot.row_dims = [tdot.cores[i].shape[1] for i in range(tdot.order)]
-    tdot.col_dims = [tdot.cores[i].shape[2] for i in range(tdot.order)]
-    tdot.ranks = [tdot.cores[i].shape[0] for i in range(tdot.order)] + [tdot.cores[-1].shape[3]]
-
-    M = tdot.tensordot(tdot, 2, mode='last-last')
-    M = M.cores[0][:, 0, 0, :]
-    return -0.5 * M
+    M = M[0, :, 0, :].T
+    sigma = dpsi.cores[p][:, :, 0, 0]
+    M = s_inv @ M @ sigma
+    return -0.5 * M @ M.T
 
 
 def _special_kron_reversible(dPsi, B):
@@ -1296,7 +1268,7 @@ def _special_kron_reversible(dPsi, B):
             # diagonal
             psi = dPsi[1, :, 0, 0]
             psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
-            for i in range(C.shape[3]):
+            for i in range(C.shape[0] - 1):
                 C[1 + i, i, :, :] = psi
 
             # first row

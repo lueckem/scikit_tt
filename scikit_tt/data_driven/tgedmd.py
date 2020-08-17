@@ -32,9 +32,10 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
         threshold for svd of psi and dpsi
     max_rank : int, optional
         maximal rank of TT representations of psi and dpsi after svd/ortho
-    return_option : {'eigentensors', 'eigenfunctionevals'}
+    return_option : {'eigentensors', 'eigenfunctionevals', 'eigenvectors'}
         'eigentensors': return a list of the eigentensors of the koopman generator
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
+        'eigenvectors': eigenvectors of M in AMUSEt
     chunk_size : int or None, optional
         if a chunk_size is specified, M in AMUSEt is built in chunks
     num_cores : int, optional
@@ -101,11 +102,13 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
             eigtensors.append(eigtensor)
 
         return eigvals, eigtensors
-    else:
+    elif return_option == 'eigenfunctionevals':
         u.rank_tensordot(eigvecs, overwrite=True)
         u.tensordot(psi, p, mode='first-first', overwrite=True)
         u = u.cores[0][0, :, 0, :].T
         return eigvals, u
+    else:
+        return eigvals, eigvecs
 
 
 def _amuset_chunks(u, s, v, x, basis_list, b, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):
@@ -783,9 +786,10 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
         threshold for svd of psi and dpsi
     max_rank : int, optional
         maximal rank of TT representations of psi and dpsi after svd/ortho
-    return_option : {'eigentensors', 'eigenfunctionevals'}
+    return_option : {'eigentensors', 'eigenfunctionevals', 'eigenvectors'}
         'eigentensors': return a list of the eigentensors of the koopman generator
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
+        'eigenvectors': return eigenvectors of M in AMUSEt
     chunk_size : int or None, optional
         if a chunk_size is specified, M in AMUSEt is built in chunks
     num_cores : int, optional
@@ -850,11 +854,13 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
             eigtensors.append(eigtensor)
 
         return eigvals, eigtensors
-    else:
+    elif return_option == 'eigenfunctionevals':
         u.rank_tensordot(eigvecs, overwrite=True)
         u.tensordot(psi, p, mode='first-first', overwrite=True)
         u = u.cores[0][0, :, 0, :].T
         return eigvals, u
+    else:
+        return eigvals, eigvecs
 
 
 def _amuset_chunks_reversible(u, s, x, basis_list, sigma, threshold=1e-2, max_rank=np.infty, chunk_size=100):

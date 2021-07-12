@@ -2,6 +2,8 @@ import numpy as np
 from scikit_tt.tensor_train import TT
 import scikit_tt.data_driven.transform as tdt
 import scikit_tt.utils as utl
+from numba import njit
+from numba.typed import List
 
 # This file contains functions related to tensor-based generator EDMD.
 
@@ -701,6 +703,7 @@ def _amuset_efficient_reversible(u, s, x, basis_list, sigma):
     dPsi = _tt_decomposition_one_snapshot_reversible(x[:, k], basis_list, sigma[:, :, k])
     M = _calc_M_k_amuset_reversible(u, s_inv, dPsi)
 
+    # todo: parallelize this loop
     while k + 1 < m:
         k = k + 1
         if k / m > next_print:
@@ -837,6 +840,7 @@ def _calc_M_k_amuset_reversible(u, s_inv, dpsi):
     return -0.5 * M.dot(M.T)
 
 
+@njit
 def _special_kron_reversible(dPsi, B):
     """
     Build Matrices M_new = M_k^{(i)} from AMUSEt.
@@ -859,33 +863,48 @@ def _special_kron_reversible(dPsi, B):
     if dPsi.shape[0] == 1 or dPsi.shape[3] == 1:  # dPsi is a vector
         for i in range(dPsi.shape[0]):
             for j in range(dPsi.shape[3]):
-                C[i, j, :, :] = np.tensordot(dPsi[i, :, 0, j], B[:, :, 0, :], axes=(0, 1))
+                C[i, j, :, :] = _tensord2(dPsi[i, :, 0, j], B[:, :, 0, :])
     else:  # dPsi is a matrix
 
         if dPsi.shape[0] == dPsi.shape[3]:  # square core (1,...,p-1)
             # diagonal
             psi = dPsi[0, :, 0, 0]
-            psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
+            psi = _tensord2(psi, B[:, :, 0, :])
             for i in range(C.shape[0]):
                 C[i, i, :, :] = psi
 
             # first row
             for i in range(1, C.shape[1]):
-                C[0, i, :, :] = np.tensordot(dPsi[0, :, 0, i], B[:, :, 0, :], axes=(0, 1))
+                C[0, i, :, :] = _tensord2(dPsi[0, :, 0, i], B[:, :, 0, :])
         else:  # core p
             # diagonal
             psi = dPsi[1, :, 0, 0]
-            psi = np.tensordot(psi, B[:, :, 0, :], axes=(0, 1))
+            psi = _tensord2(psi, B[:, :, 0, :])
             for i in range(C.shape[0] - 1):
                 C[1 + i, i, :, :] = psi
 
             # first row
             for i in range(0, C.shape[1]):
-                C[0, i, :, :] = np.tensordot(dPsi[0, :, 0, i], B[:, :, 0, :], axes=(0, 1))
+                C[0, i, :, :] = _tensord2(dPsi[0, :, 0, i], B[:, :, 0, :])
 
     return C
 
 
+@njit
+def _tensord2(a, b):
+    """
+    Manual implementation of tensordot(a, b, axis=(0,1)) with tensors a.shape=(l,)
+    and b.shape=(?,l,?).
+    """
+    out = np.zeros((b.shape[0], b.shape[2]))
+    for i in range(b.shape[0]):
+        for j in range(b.shape[2]):
+            for n in range(a.shape[0]):
+                out[i, j] += a[n] * b[i, n, j]
+    return out
+
+
+@njit
 def _special_tensordot_reversible(A, B):
     """
     Tensordot between arrays A and B with special structure.

@@ -6,8 +6,6 @@ from msmtools.analysis.dense.pcca import _pcca_connected_isa
 from matplotlib import pyplot as plt
 
 
-
-
 class LemonSlice:
     def __init__(self, k, beta, c=1.0, d=2, alpha=1.0):
         """
@@ -208,147 +206,147 @@ class LemonSlice:
         return r, phi
 
 
+if __name__ == '__main__':
+    """  System Settings: """
+    # Number of dimensions:
+    d = 4
+    # Diffusion constant:
+    beta = 1.0
+    # Spring constant for harmonic parts of the potential
+    alpha = 10.0
+    # Pre-factor for Lemon Slice:
+    c = 1.0
+    # Number of minima for Lemon Slice:
+    k = 4
 
+    """ Simulation settings: """
+    # Integration time step:
+    dt = 1e-3
+    # Number of time steps:
+    m = 3000
+    m_tgedmd = 3000
+    # Initial position:
+    x0 = np.random.rand(d)
+    # Maximal rank for HOSVD:
+    max_rank = np.infty
+    # Truncation threshold for HOSVD:
+    epsilon = 1e-3
 
-"""  System Settings: """
-# Number of dimensions:
-d = 4
-# Diffusion constant:
-beta = 1.0
-# Spring constant for harmonic parts of the potential
-alpha = 10.0
-# Pre-factor for Lemon Slice:
-c = 1.0
-# Number of minima for Lemon Slice:
-k = 4
+    """ For use with Gaussian basis functions """
+    # mean_ls = np.arange(-1.2, 1.21, 0.2)
+    # sig_ls = 0.2
+    # mean_quad = np.arange(-1.0, 1.01, 0.2)
+    # sig_quad = 0.2
 
-""" Simulation settings: """
-# Integration time step:
-dt = 1e-3
-# Number of time steps:
-m = 300000
-m_tgedmd = 3000
-# Initial position:
-x0 = np.random.rand(d)
-# Maximal rank for HOSVD:
-max_rank = np.infty
-# Truncation threshold for HOSVD:
-epsilon = 1e-3
+    # Define basis sets:
+    # basis_list = []
+    # for i in range(2):
+    #     basis_list.append([tdt.GaussFunction(i, mean_ls[j], sig_ls) for j in range(len(mean_ls))])
+    # for i in range(2, 4):
+    #     basis_list.append([tdt.GaussFunction(i, mean_quad[j], sig_quad) for j in range(len(mean_quad))])
 
-""" For use with Gaussian basis functions """
-# mean_ls = np.arange(-1.2, 1.21, 0.2)
-# sig_ls = 0.2
-# mean_quad = np.arange(-1.0, 1.01, 0.2)
-# sig_quad = 0.2
+    """ For use with B-Spline basis functions: """
+    # Set boundary values for Lemon Slice and quadratic parts:
+    bounds_ls = [-1.7, 1.7]
+    bounds_q = [-1.2, 1.2]
+    # Set number of subintervals for both parts:
+    nsub_ls = 6
+    nsub_q = 6
+    # Set degree of B-spline to be used:
+    degree = 3
 
-# Define basis sets:
-# basis_list = []
-# for i in range(2):
-#     basis_list.append([tdt.GaussFunction(i, mean_ls[j], sig_ls) for j in range(len(mean_ls))])
-# for i in range(2, 4):
-#     basis_list.append([tdt.GaussFunction(i, mean_quad[j], sig_quad) for j in range(len(mean_quad))])
+    # Define knot vectors:
+    knots_ls = np.linspace(bounds_ls[0], bounds_ls[1], nsub_ls+1)
+    knots_q = np.linspace(bounds_q[0], bounds_q[1], nsub_q+1)
+    # Define basis sets:
+    basis_list = []
 
-""" For use with B-Spline basis functions: """
-# Set boundary values for Lemon Slice and quadratic parts:
-bounds_ls = [-1.7, 1.7]
-bounds_q = [-1.2, 1.2]
-# Set number of subintervals for both parts:
-nsub_ls = 6
-nsub_q = 6
-# Set degree of B-spline to be used:
-degree = 3
+    for i in range(2):
+        cbsp = np.eye(nsub_ls + degree, nsub_ls + degree)
+        basis_list.append([tdt.Bspline(i, knots_ls, degree, cbsp[j, :]) for j in range(nsub_ls + degree)])
+    for i in range(2, 4):
+        cbsp = np.eye(nsub_q + degree, nsub_q + degree)
+        basis_list.append([tdt.Bspline(i, knots_q, degree, cbsp[j, :]) for j in range(nsub_q + degree)])
 
-# Define knot vectors:
-knots_ls = np.linspace(bounds_ls[0], bounds_ls[1], nsub_ls+1)
-knots_q = np.linspace(bounds_q[0], bounds_q[1], nsub_q+1)
-# Define basis sets:
-basis_list = []
+    """ Run Simulation """
+    print('Running Simulation...')
+    LS = LemonSlice(k, beta, c=c, d=d, alpha=alpha)
+    data = LS.simulate(x0, m, dt)  # data.shape = (d, m)
+    np.save("data", data)
 
-for i in range(2):
-    cbsp = np.eye(nsub_ls + degree, nsub_ls + degree)
-    basis_list.append([tdt.Bspline(i, knots_ls, degree, cbsp[j, :]) for j in range(nsub_ls + degree)])
-for i in range(2, 4):
-    cbsp = np.eye(nsub_q + degree, nsub_q + degree)
-    basis_list.append([tdt.Bspline(i, knots_q, degree, cbsp[j, :]) for j in range(nsub_q + degree)])
+    """ plot potential """
+    LS2 = LemonSlice(k, beta, c=c, d=2, alpha=alpha)
+    nx, ny = (100, 100)
+    x = np.linspace(-1.5, 1.5, nx)
+    y = np.linspace(-1.5, 1.5, ny)
+    x, y = np.meshgrid(x, y)
 
-""" Run Simulation """
-print('Running Simulation...')
-LS = LemonSlice(k, beta, c=c, d=d, alpha=alpha)
-data = LS.simulate(x0, m, dt)  # data.shape = (d, m)
+    XY = np.concatenate([x.reshape((-1, 1)), y.reshape((-1, 1))], axis=1)
+    C = LS2.potential(XY.T)
+    C = C.reshape(nx, ny)
+    Cm = np.ma.masked_where(C > 10, C)
 
-""" plot potential """
-LS2 = LemonSlice(k, beta, c=c, d=2, alpha=alpha)
-nx, ny = (100, 100)
-x = np.linspace(-1.5, 1.5, nx)
-y = np.linspace(-1.5, 1.5, ny)
-x, y = np.meshgrid(x, y)
+    plt.figure(figsize=(8, 6))
+    cf = plt.pcolormesh(x, y, Cm, shading='gouraud', cmap='jet')
+    plt.colorbar(cf)
+    plt.title(r"Potential in $x_1$ and $x_2$")
+    plt.xlabel(r"$x_1$", fontsize=12)
+    plt.ylabel(r"$x_2$", fontsize=12)
 
-XY = np.concatenate([x.reshape((-1, 1)), y.reshape((-1, 1))], axis=1)
-C = LS2.potential(XY.T)
-C = C.reshape(nx, ny)
-Cm = np.ma.masked_where(C > 10, C)
+    """ Define basis functions for tgEDMD """
 
-plt.figure(figsize=(8, 6))
-cf = plt.pcolormesh(x, y, Cm, shading='gouraud', cmap='jet')
-plt.colorbar(cf)
-plt.title(r"Potential in $x_1$ and $x_2$")
-plt.xlabel(r"$x_1$", fontsize=12)
-plt.ylabel(r"$x_2$", fontsize=12)
+    # for i in range(2):
+    #     basis_list.append([tdt.Legendre(i, j, domain=1.5) for j in range(0, 10)])
+    # for i in range(2, 4):
+    #     basis_list.append([tdt.Legendre(i, j, domain=1.5) for j in range(0, 8)])
 
-""" Define basis functions for tgEDMD """
+    """ Run tgEDMD """
+    delta = int(round(m / m_tgedmd))
+    data_tgedmd = data[:, ::delta]
 
-# for i in range(2):
-#     basis_list.append([tdt.Legendre(i, j, domain=1.5) for j in range(0, 10)])
-# for i in range(2, 4):
-#     basis_list.append([tdt.Legendre(i, j, domain=1.5) for j in range(0, 8)])
+    drift = np.zeros(data_tgedmd.shape)
+    for k in range(drift.shape[1]):
+        drift[:, k] = LS.drift(data_tgedmd[:, k])
 
-""" Run tgEDMD """
-delta = int(round(m / m_tgedmd))
-data_tgedmd = data[:, ::delta]
+    diffusion = np.zeros((data_tgedmd.shape[0], data_tgedmd.shape[0], data_tgedmd.shape[1]))
+    for k in range(diffusion.shape[2]):
+        diffusion[:, :, k] = LS.diffusion(data_tgedmd[:, k])
 
-drift = np.zeros(data_tgedmd.shape)
-for k in range(drift.shape[1]):
-    drift[:, k] = LS.drift(data_tgedmd[:, k])
+    # AMUSEt for the general case
+    #eigvals, traj_eigfuns = tgedmd.amuset_hosvd(data[:, ::delta], basis_list, drift, diffusion, num_eigvals=5,
+    #                                            return_option='eigenfunctionevals',
+    #                                            threshold=epsilon, max_rank=max_rank)
 
-diffusion = np.zeros((data_tgedmd.shape[0], data_tgedmd.shape[0], data_tgedmd.shape[1]))
-for k in range(diffusion.shape[2]):
-    diffusion[:, :, k] = LS.diffusion(data_tgedmd[:, k])
+    # AMUSEt for the reversible case
+    eigvals, traj_eigfuns = tgedmd.amuset_hosvd_reversible(data_tgedmd, basis_list, diffusion, num_eigvals=5,
+                                                           return_option='eigenfunctionevals',
+                                                           threshold=epsilon, max_rank=max_rank)
 
-# AMUSEt for the general case
-#eigvals, traj_eigfuns = tgedmd.amuset_hosvd(data[:, ::delta], basis_list, drift, diffusion, num_eigvals=5,
-#                                            return_option='eigenfunctionevals',
-#                                            threshold=epsilon, max_rank=max_rank)
+    eigvals = eigvals.real
+    print('Eigenvalues of Koopman generator: {}'.format(eigvals))
+    its = [-1 / kappa for kappa in eigvals[1:]]
+    print('Implied time scales: {}'.format(its))
 
-# AMUSEt for the reversible case
-eigvals, traj_eigfuns = tgedmd.amuset_hosvd_reversible(data_tgedmd, basis_list, diffusion, num_eigvals=5,
-                                                       return_option='eigenfunctionevals',
-                                                       threshold=epsilon, max_rank=max_rank)
+    """ Identify metastable areas """
+    diffs = np.abs(np.max(traj_eigfuns.T, axis=0) - np.min(traj_eigfuns.T, axis=0))
+    if diffs[0] > 1e-6:
+        traj_eigfuns[0, :] = traj_eigfuns[0, 0] * np.ones((traj_eigfuns.shape[1]))
+    chi, _ = _pcca_connected_isa(traj_eigfuns.T, 4)
+    chi = chi.T
+    for i in range(chi.shape[1]):
+        ind = np.argmax(chi[:, i])
+        chi[:, i] = np.zeros((chi.shape[0],))
+        chi[ind, i] = 1
+    chi = chi.astype(bool)
+    tgedmd_data = data[:, ::delta]
 
-eigvals = eigvals.real
-print('Eigenvalues of Koopman generator: {}'.format(eigvals))
-its = [-1 / kappa for kappa in eigvals[1:]]
-print('Implied time scales: {}'.format(its))
-
-""" Identify metastable areas """
-diffs = np.abs(np.max(traj_eigfuns.T, axis=0) - np.min(traj_eigfuns.T, axis=0))
-if diffs[0] > 1e-6:
-    traj_eigfuns[0, :] = traj_eigfuns[0, 0] * np.ones((traj_eigfuns.shape[1]))
-chi, _ = _pcca_connected_isa(traj_eigfuns.T, 4)
-chi = chi.T
-for i in range(chi.shape[1]):
-    ind = np.argmax(chi[:, i])
-    chi[:, i] = np.zeros((chi.shape[0],))
-    chi[ind, i] = 1
-chi = chi.astype(bool)
-tgedmd_data = data[:, ::delta]
-
-plt.figure(figsize=(8, 6))
-plt.plot(tgedmd_data[0, :][chi[0, :]], tgedmd_data[1, :][chi[0, :]], 'bx')
-plt.plot(tgedmd_data[0, :][chi[1, :]], tgedmd_data[1, :][chi[1, :]], 'r*')
-plt.plot(tgedmd_data[0, :][chi[2, :]], tgedmd_data[1, :][chi[2, :]], 'g2')
-plt.plot(tgedmd_data[0, :][chi[3, :]], tgedmd_data[1, :][chi[3, :]], 'y+')
-plt.grid()
-plt.xlabel(r"$x_1$", fontsize=12)
-plt.ylabel(r"$x_2$", fontsize=12)
-plt.title("Clustering of the state space obtained by tgEDMD and PCCA")
-plt.show()
+    plt.figure(figsize=(8, 6))
+    plt.plot(tgedmd_data[0, :][chi[0, :]], tgedmd_data[1, :][chi[0, :]], 'bx')
+    plt.plot(tgedmd_data[0, :][chi[1, :]], tgedmd_data[1, :][chi[1, :]], 'r*')
+    plt.plot(tgedmd_data[0, :][chi[2, :]], tgedmd_data[1, :][chi[2, :]], 'g2')
+    plt.plot(tgedmd_data[0, :][chi[3, :]], tgedmd_data[1, :][chi[3, :]], 'y+')
+    plt.grid()
+    plt.xlabel(r"$x_1$", fontsize=12)
+    plt.ylabel(r"$x_2$", fontsize=12)
+    plt.title("Clustering of the state space obtained by tgEDMD and PCCA")
+    plt.show()

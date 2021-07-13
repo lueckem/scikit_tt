@@ -3,7 +3,8 @@ from scikit_tt.tensor_train import TT
 import scikit_tt.data_driven.transform as tdt
 import scikit_tt.utils as utl
 from numba import njit
-from numba.typed import List
+from pathos.multiprocessing import ProcessPool
+import time
 
 # This file contains functions related to tensor-based generator EDMD.
 
@@ -167,7 +168,6 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
         eigentensors of Koopman generator or evaluations of eigenfunctions at snapshots (shape (*, m))
         (cf. return_option)
     """
-
     # Order:
     p = len(basis_list)
     # Mode sizes:
@@ -201,7 +201,10 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
     print('Psi(X): {}'.format(psi))
 
     print('calculating M in AMUSEt')
+    t_start = time.time()
     M = _amuset_efficient_reversible(U, s, data_matrix, basis_list, sigma)
+    t_end = time.time()
+    print('took {} secs'.format(t_end - t_start))
 
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
@@ -693,26 +696,22 @@ def _amuset_efficient_reversible(u, s, x, basis_list, sigma):
         matrix M from AMUSEt
     """
     m = x.shape[1]
-    k = 0
-
-    # for outputting progress
-    next_print = 0.1
-
     s_inv = np.diag(1.0 / s)
+    pool = ProcessPool(nodes=2)
+    M = []
 
-    dPsi = _tt_decomposition_one_snapshot_reversible(x[:, k], basis_list, sigma[:, :, k])
-    M = _calc_M_k_amuset_reversible(u, s_inv, dPsi)
+    for k in range(m):
+        M.append(pool.apipe(_pathos_calc_Mks, x[:, k], basis_list, sigma[:, :, k], u, s_inv))
 
-    # todo: parallelize this loop
-    while k + 1 < m:
-        k = k + 1
-        if k / m > next_print:
-            print('progress: {}%'.format(int(round(next_print * 100))))
-            next_print += 0.1
-        dPsi = _tt_decomposition_one_snapshot_reversible(x[:, k], basis_list, sigma[:, :, k])
-        M += _calc_M_k_amuset_reversible(u, s_inv, dPsi)
+    M = [m.get() for m in M]
+    pool.close()
+    pool.join()
+    return np.sum(M, axis=0)
 
-    return M
+
+def _pathos_calc_Mks(x_k, basis_list, sigma_k, u, s_inv):
+    dPsi = _tt_decomposition_one_snapshot_reversible(x_k, basis_list, sigma_k)
+    return _calc_M_k_amuset_reversible(u, s_inv, dPsi)
 
 
 def _tt_decomposition_one_snapshot_reversible(x_k, basis_list, sigma_k):

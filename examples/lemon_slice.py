@@ -271,8 +271,8 @@ if __name__ == '__main__':
     """ Run Simulation """
     print('Running Simulation...')
     LS = LemonSlice(k, beta, c=c, d=d, alpha=alpha)
-    data = LS.simulate(x0, m, dt)  # data.shape = (d, m)
-    np.save("data", data)
+    # data = LS.simulate(x0, m, dt)  # data.shape = (d, m)
+    data = np.load("data.npy")  # np.save("data", data)
 
     """ plot potential """
     LS2 = LemonSlice(k, beta, c=c, d=2, alpha=alpha)
@@ -320,7 +320,7 @@ if __name__ == '__main__':
     # AMUSEt for the reversible case
     eigvals, traj_eigfuns = tgedmd.amuset_hosvd_reversible(data_tgedmd, basis_list, diffusion, num_eigvals=5,
                                                            return_option='eigenfunctionevals',
-                                                           threshold=epsilon, max_rank=max_rank)
+                                                           threshold=epsilon, max_rank=max_rank, num_nodes=4)
 
     eigvals = eigvals.real
     print('Eigenvalues of Koopman generator: {}'.format(eigvals))

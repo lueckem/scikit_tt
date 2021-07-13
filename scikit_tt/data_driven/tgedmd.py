@@ -6,6 +6,9 @@ from numba import njit
 from pathos.multiprocessing import ProcessPool
 import time
 
+# todo: implement multiprocessing for general case
+# todo: implement numba for general case
+
 # This file contains functions related to tensor-based generator EDMD.
 
 # Structure of this file:
@@ -134,7 +137,7 @@ def amuset_hosvd(data_matrix, basis_list, b, sigma, num_eigvals=np.infty, thresh
 
 
 def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty, threshold=1e-2, max_rank=np.infty,
-                            return_option='eigenfunctionevals'):
+                            return_option='eigenfunctionevals', num_nodes=1):
     """
     AMUSEt algorithm for calculation of eigenvalues of the Koopman generator.
     The tensor-trains are created using the exact TT decomposition, whose ranks are reduced using SVDs.
@@ -159,6 +162,8 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
         'eigentensors': return a list of the eigentensors of the koopman generator
         'eigenfunctionevals': return the evaluations of the eigenfunctions of the koopman generator at all snapshots
         'eigenvectors': return eigenvectors of M in AMUSEt
+    num_nodes : int, optional
+        if > 1, use multiprocessing with num_node workers
 
     Returns
     -------
@@ -202,7 +207,7 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
 
     print('calculating M in AMUSEt')
     t_start = time.time()
-    M = _amuset_efficient_reversible(U, s, data_matrix, basis_list, sigma)
+    M = _amuset_efficient_reversible(U, s, data_matrix, basis_list, sigma, num_nodes=num_nodes)
     t_end = time.time()
     print('took {} secs'.format(t_end - t_start))
 
@@ -675,7 +680,7 @@ def _is_special(A):
 
 
 # ################ private functions for the reversible case ##########################################
-def _amuset_efficient_reversible(u, s, x, basis_list, sigma):
+def _amuset_efficient_reversible(u, s, x, basis_list, sigma, num_nodes=1):
     """
     Construct the Matrix M in AMUSEt using the efficient implementation (M = sum (-0.5 M_k M_k^T)).
 
@@ -689,19 +694,26 @@ def _amuset_efficient_reversible(u, s, x, basis_list, sigma):
         list of basis functions in every mode
     sigma : np.ndarray
         diffusion, shape (d, d2, m)
+    num_nodes : int, optional
+        if > 1, use multiprocessing with num_node workers
 
     Returns
     -------
     np.ndarray
         matrix M from AMUSEt
     """
+    # todo: only use multiprocessing if num_nodes > 1
     m = x.shape[1]
     s_inv = np.diag(1.0 / s)
-    pool = ProcessPool(nodes=2)
+    print("Constructing Multiprocessingpool with {} workers".format(num_nodes))
+    pool = ProcessPool(nodes=num_nodes)
+    chunk_boundaries = np.unique(np.linspace(0, m, num_nodes * 10 + 1).astype(int))
     M = []
 
-    for k in range(m):
-        M.append(pool.apipe(_pathos_calc_Mks, x[:, k], basis_list, sigma[:, :, k], u, s_inv))
+    for k in range(len(chunk_boundaries) - 1):
+        # print("Chunk {}: {} to {}".format(k, chunk_boundaries[k], chunk_boundaries[k + 1]))
+        M.append(pool.apipe(_pathos_calc_Mks, chunk_boundaries[k], chunk_boundaries[k + 1],
+                            x, basis_list, sigma, u, s_inv))
 
     M = [m.get() for m in M]
     pool.close()
@@ -709,9 +721,14 @@ def _amuset_efficient_reversible(u, s, x, basis_list, sigma):
     return np.sum(M, axis=0)
 
 
-def _pathos_calc_Mks(x_k, basis_list, sigma_k, u, s_inv):
-    dPsi = _tt_decomposition_one_snapshot_reversible(x_k, basis_list, sigma_k)
-    return _calc_M_k_amuset_reversible(u, s_inv, dPsi)
+def _pathos_calc_Mks(k_start, k_end, x, basis_list, sigma, u, s_inv):
+    dPsi = _tt_decomposition_one_snapshot_reversible(x[:, k_start], basis_list, sigma[:, :, k_start])
+    M = _calc_M_k_amuset_reversible(u, s_inv, dPsi)
+
+    for k in range(k_start + 1, k_end):
+        dPsi = _tt_decomposition_one_snapshot_reversible(x[:, k], basis_list, sigma[:, :, k])
+        M += _calc_M_k_amuset_reversible(u, s_inv, dPsi)
+    return M
 
 
 def _tt_decomposition_one_snapshot_reversible(x_k, basis_list, sigma_k):
@@ -903,7 +920,8 @@ def _tensord2(a, b):
     return out
 
 
-@njit
+# todo: make fast njit (dot has problems with slicing)
+# @njit
 def _special_tensordot_reversible(A, B):
     """
     Tensordot between arrays A and B with special structure.

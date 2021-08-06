@@ -240,6 +240,12 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
         return eigvals, eigtensors
     elif return_option == 'eigenfunctionevals':
         U.rank_tensordot(eigvecs, overwrite=True)
+        # this makes memory problems if the ranks of U,psi are high -> convert to float32
+        if max(np.max(U.ranks), np.max(psi.ranks)) > 500:
+            for i in range(len(U.cores)):
+                U.cores[i] = U.cores[i].astype(np.float32, copy=False)
+            for i in range(len(psi.cores)):
+                psi.cores[i] = psi.cores[i].astype(np.float32, copy=False)
         U.tensordot(psi, p, mode='first-first', overwrite=True)
         U = U.cores[0][0, :, 0, :].T
         return eigvals, U

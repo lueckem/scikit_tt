@@ -210,6 +210,7 @@ def amuset_hosvd_reversible(data_matrix, basis_list, sigma, num_eigvals=np.infty
     M = _amuset_efficient_reversible(U, s, data_matrix, basis_list, sigma, num_nodes=num_nodes)
     t_end = time.time()
     print('took {} secs'.format(t_end - t_start))
+    np.save("M.npy", M)
 
     print('calculating eigenvalues and eigentensors...')
     # calculate eigenvalues of M
